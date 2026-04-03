@@ -6,7 +6,11 @@ from torch.utils.data import TensorDataset, DataLoader
 def get_data():
     japanese_train = load_dataset("asahi417/jvnv-emotional-speech-corpus",split="test")
     print(japanese_train)
-    bangla_train = load_dataset("sustcsenlp/bn_emotion_speech_corpus",split="train", trust_remote_code=True)
+    bangla_train = load_dataset(
+        "json",
+        data_files="https://huggingface.co/datasets/sustcsenlp/bn_emotion_speech_corpus/resolve/main/train.jsonl",
+        split="train"
+    )
     print(bangla_train)
     chinese_train = load_dataset("BillyLin/CASIA_speech_emotion_recognition", split="train")
     print(chinese_train)

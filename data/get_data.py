@@ -26,7 +26,7 @@ def get_data():
     ).select_columns(["path", "emotional_state"])
     bangla_train = bangla_train.with_format("torch")
     ban_train_size = int(0.8 * len(bangla_train))
-    ban_test_size = len(japanese_train) - ban_train_size
+    ban_test_size = len(bangla_train) - ban_train_size
     ban_train, ban_test = random_split(
         bangla_train, [ban_train_size, ban_test_size], generator=torch.Generator().manual_seed(42)
     )
@@ -55,21 +55,46 @@ def get_data():
     eng_train = DataLoader(english_train, batch_size=64, shuffle=True, num_workers=0)
     eng_test = DataLoader(english_train, batch_size=64, shuffle=False, num_workers=0)
 
-    spanish_path = kagglehub.dataset_download("angeluxarmenta/ses-sd", target_format="huggingface")
-    spanish = load_from_disk(spanish_path)
+    spanish_path = kagglehub.dataset_download("angeluxarmenta/ses-sd")
+    spanish = load_dataset("audiofolder", data_dir=spanish_path, split="train")
     spanish = spanish.with_format("torch")
-    # spanish_size = int(0.8*len(spanish))
-    # span_train, span_test = random_split(
-    #     spanish,
-    #     [spanish_size, len(spanish)],
-    #     generator=torch.Generator().manual_seed(42)
-    # )
-    # spanish_train = DataLoader(span_train, batch_size=64, shuffle=True, num_workers=0)
-    # spanish_test = DataLoader(span_test, batch_size=64, shuffle=False, num_workers=0)
+    spanish_size = int(0.8*len(spanish))
+    span_train, span_test = random_split(
+        spanish,
+        [spanish_size, len(spanish)-spanish_size],
+        generator=torch.Generator().manual_seed(42)
+    )
+    spanish_train = DataLoader(span_train, batch_size=64, shuffle=True, num_workers=0)
+    spanish_test = DataLoader(span_test, batch_size=64, shuffle=False, num_workers=0)
 
-    print(spanish)
-    # span_train, span_test = DataLoader(spanish, batch_size=64, shuffle=True, num_workers=0)
-    arabic = kagglehub.dataset_download("a13x10/basic-arabic-vocal-emotions-dataset", target_format="huggingface")
-    print(arabic)
+    arabic_path = kagglehub.dataset_download("a13x10/basic-arabic-vocal-emotions-dataset")
+    arabic = load_dataset("audiofolder", data_dir=arabic_path, split="train")
+    arabic = arabic.with_format("torch")
+    arabic_size = int(0.8*len(arabic))
+    arabic_train, arabic_test = random_split(
+        arabic,
+        [arabic_size, len(arabic)-arabic_size],
+        generator=torch.Generator().manual_seed(42)
+    )
+    arabic_train = DataLoader(arabic_train, batch_size=64, shuffle=True, num_workers=0)
+    arabic_test = DataLoader(arabic_test, batch_size=64, shuffle=False, num_workers=0)
 
-    return japanese_train, bangla_train, chinese_train, english_train, spanish, arabic
+    datasets = {
+        "train": {
+            "japanese": jap_train,
+            "english": eng_train,
+            "bangla": ban_train,
+            "spanish": spanish_train,
+            "arabic": arabic_train,
+            "chinese": ch_train
+        },
+        "test": {
+            "japanese": jap_test,
+            "english": eng_test,
+            "bangla": ban_test,
+            "spanish": spanish_test,
+            "arabic": arabic_test,
+            "chinese": ch_test
+        }
+    }
+    return datasets

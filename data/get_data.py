@@ -15,7 +15,6 @@ shared_emotions = ClassLabel(names=target_emotions)
 def speech_collate_fn(batch):
     processed_audio, processed_labels = [], []
 
-    # Identify the correct label key for this specific batch
     possible_keys = ["style", "emotional_state", "label"]
     label_key = next((k for k in possible_keys if k in batch[0]), None)
     if label_key is None:
@@ -23,8 +22,6 @@ def speech_collate_fn(batch):
 
     for item in batch:
         try:
-            # Access audio data
-            # Since decode=False is used in get_data(), we usually look for 'bytes'
             if isinstance(item["audio"], dict):
                 if "array" in item["audio"] and item["audio"]["array"] is not None:
                     audio_tensor = torch.tensor(item["audio"]["array"]).squeeze()
@@ -32,14 +29,8 @@ def speech_collate_fn(batch):
                     audio_bytes = item["audio"]["bytes"]
                     waveform, sample_rate = torchaudio.load(io.BytesIO(audio_bytes))
                     audio_tensor = waveform.squeeze()
-                else:
-                    continue
-            else:
-                continue
 
             processed_audio.append(audio_tensor)
-
-            # Process the corresponding label
             val = item[label_key]
             if isinstance(val, str):
                 processed_labels.append(shared_emotions.str2int(val.lower().strip()))
@@ -47,14 +38,11 @@ def speech_collate_fn(batch):
                 processed_labels.append(int(val))
 
         except Exception as e:
-            # Now properly catches decoding errors during manual torchaudio load
             print(f"Skipping corrupted sample: {e}")
             continue
 
     if not processed_audio:
         return torch.empty(0), torch.empty(0)
-
-    # Pad the successful audio tensors
     audio_padded = pad_sequence(processed_audio, batch_first=True)
     labels = torch.as_tensor(processed_labels, dtype=torch.long)
 

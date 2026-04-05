@@ -4,7 +4,8 @@ from data import get_data
 
 def main():
     dataset = get_data.get_data()
-    print(dataset['train']['english'].value())
+    for batch_idx, (features, labels) in enumerate(dataset['train']['english']):
+        print(f"{batch_idx}: feature {features}, label {labels}")
     return 0
 
 if __name__ == '__main__':

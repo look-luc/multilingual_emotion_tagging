@@ -1,9 +1,9 @@
 import sys
-from .data import get_data
-from .custom_model import model
+from data import get_data
+# from .custom_model import model
 
 def main():
-    get_data.get_data()
+    dataset = get_data.get_data()
     return 0
 
 if __name__ == '__main__':

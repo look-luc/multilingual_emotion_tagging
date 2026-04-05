@@ -12,10 +12,20 @@ shared_emotions = ClassLabel(names=target_emotions)
 def speech_collate_fn(batch):
     audio_tensors = [torch.tensor(item["audio"]["array"]).squeeze() for item in batch]
     audio_padded = pad_sequence(audio_tensors, batch_first=True)
+
     label_key = next(k for k in batch[0].keys() if k != "audio")
-    labels = torch.tensor([item[label_key] for item in batch])
+    if isinstance(batch[0][label_key], str):
+        labels = torch.tensor([shared_emotions.str2int(item[label_key]) for item in batch])
+    else:
+        labels = torch.tensor([item[label_key] for item in batch])
 
     return audio_padded, labels
+
+def is_audio_valid(example):
+    try:
+        return example["audio"]["bytes"] is not None and len(example["audio"]["bytes"]) > 0
+    except Exception:
+        return False
 
 def get_data():
     japanese_train = load_dataset(
@@ -64,25 +74,29 @@ def get_data():
 
     english_train = load_dataset("En1gma02/english_emotions", split="train")
     english_train = english_train.select_columns(["audio", "style"])
-
-    valid_indices = []
-    for i, label in enumerate(english_train["style"]):
-        if label.lower().strip() in target_emotions:
-            valid_indices.append(i)
-
-    english_train = english_train.select(valid_indices)
-    english_train = english_train.map(lambda x: {"style": x["style"].lower().strip()})
-    english_train = english_train.cast_column("style", shared_emotions)
-    english_train = english_train.with_format("torch")
-    english_train_size = int(0.8*len(english_train))
-    english_test_size = len(english_train) - english_train_size
-    english_train, english_test = random_split(
-        english_train,
+    styles = english_train["style"]
+    valid_indices = [
+        i for i, s in enumerate(styles)
+        if str(s).lower().strip() in target_emotions
+    ]
+    english_train_filtered = english_train.select(valid_indices)
+    english_train_filtered = english_train_filtered.with_format(None)
+    print("Cleaning corrupted English audio files...")
+    english_train_filtered = english_train_filtered.filter(is_audio_valid)
+    english_train_filtered = english_train_filtered.map(lambda x: {"style": x["style"].lower().strip()})
+    english_train_filtered = english_train_filtered.cast_column("style", shared_emotions)
+    english_train_filtered = english_train_filtered.with_format("torch")
+    english_train_size = int(0.8 * len(english_train_filtered))
+    english_test_size = len(english_train_filtered) - english_train_size
+    english_train_split, english_test_split = random_split(
+        english_train_filtered,
         [english_train_size, english_test_size],
         generator=torch.Generator().manual_seed(42)
     )
-    eng_train = DataLoader(english_train, batch_size=64, shuffle=True, num_workers=0, collate_fn=speech_collate_fn)
-    eng_test = DataLoader(english_train, batch_size=64, shuffle=False, num_workers=0, collate_fn=speech_collate_fn)
+    english_train_filtered = english_train_filtered.cast_column("style", shared_emotions)
+    english_train_filtered = english_train_filtered.with_format("torch")
+    eng_train = DataLoader(english_train_split, batch_size=64, shuffle=True, num_workers=0, collate_fn=speech_collate_fn)
+    eng_test = DataLoader(english_test_split, batch_size=64, shuffle=False, num_workers=0, collate_fn=speech_collate_fn)
 
     spanish_path = kagglehub.dataset_download("angeluxarmenta/ses-sd")
     spanish = load_dataset("audiofolder", data_dir=spanish_path, split="train")

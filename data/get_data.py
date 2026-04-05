@@ -73,30 +73,26 @@ def get_data():
     ch_test = DataLoader(ch_test, batch_size=64, shuffle=False, num_workers=0, collate_fn=speech_collate_fn)
 
     english_train = load_dataset("En1gma02/english_emotions", split="train")
-    english_train = english_train.select_columns(["audio", "style"])
-    styles = english_train["style"]
     valid_indices = [
-        i for i, s in enumerate(styles)
+        i for i, s in enumerate(english_train["style"])
         if str(s).lower().strip() in target_emotions
     ]
     english_train_filtered = english_train.select(valid_indices)
-    english_train_filtered = english_train_filtered.with_format(None)
-    print("Cleaning corrupted English audio files...")
-    english_train_filtered = english_train_filtered.filter(is_audio_valid)
+    english_train_filtered = english_train_filtered.cast_column("audio", Audio(decode=False))
+    print("Cleaning corrupted English audio files safely...")
+    english_train_filtered = english_train_filtered.filter(is_audio_valid, load_from_cache_file=False)
+    english_train_filtered = english_train_filtered.cast_column("audio", Audio(decode=True))
     english_train_filtered = english_train_filtered.map(lambda x: {"style": x["style"].lower().strip()})
     english_train_filtered = english_train_filtered.cast_column("style", shared_emotions)
     english_train_filtered = english_train_filtered.with_format("torch")
     english_train_size = int(0.8 * len(english_train_filtered))
-    english_test_size = len(english_train_filtered) - english_train_size
     english_train_split, english_test_split = random_split(
         english_train_filtered,
-        [english_train_size, english_test_size],
+        [english_train_size, len(english_train_filtered) - english_train_size],
         generator=torch.Generator().manual_seed(42)
     )
-    english_train_filtered = english_train_filtered.cast_column("style", shared_emotions)
-    english_train_filtered = english_train_filtered.with_format("torch")
-    eng_train = DataLoader(english_train_split, batch_size=64, shuffle=True, num_workers=0, collate_fn=speech_collate_fn)
-    eng_test = DataLoader(english_test_split, batch_size=64, shuffle=False, num_workers=0, collate_fn=speech_collate_fn)
+    eng_train = DataLoader(english_train_split, batch_size=64, shuffle=True, collate_fn=speech_collate_fn)
+    eng_test = DataLoader(english_test_split, batch_size=64, shuffle=False, collate_fn=speech_collate_fn)
 
     spanish_path = kagglehub.dataset_download("angeluxarmenta/ses-sd")
     spanish = load_dataset("audiofolder", data_dir=spanish_path, split="train")

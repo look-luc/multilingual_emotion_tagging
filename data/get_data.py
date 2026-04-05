@@ -1,6 +1,9 @@
+import torch
+import torchaudio
+import io
 import kagglehub
 import torch
-from datasets import load_dataset, load_from_disk
+from datasets import load_dataset
 from torch.utils.data import DataLoader, TensorDataset, random_split
 from torch.nn.utils.rnn import pad_sequence
 
@@ -10,23 +13,44 @@ target_emotions = ["angry", "happy", "sad", "neutral", "fear", "disgust", "surpr
 shared_emotions = ClassLabel(names=target_emotions)
 
 def speech_collate_fn(batch):
-    audio_tensors = [item["audio"]["array"].squeeze() for item in batch]
-    audio_padded = pad_sequence(audio_tensors, batch_first=True)
+    def speech_collate_fn(batch):
+        processed_audio, processed_labels = [], []
 
-    possible_keys = ["style", "emotional_state", "label"]
-    label_key = next((k for k in possible_keys if k in batch[0]), None)
+        possible_keys = ["style", "emotional_state", "label"]
+        label_key = next((k for k in possible_keys if k in batch[0]), None)
+        if label_key is None:
+            label_key = next(k for k in batch[0].keys() if k != "audio")
 
-    if label_key is None:
-        # Fallback to your current logic if none of the above match
-        label_key = next(k for k in batch[0].keys() if k != "audio")
+        for item in batch:
+            try:
+                # Check if we have pre-decoded array or raw bytes
+                if isinstance(item["audio"], dict) and "array" in item["audio"]:
+                    audio_array = item["audio"]["array"]
+                    audio_tensor = torch.tensor(audio_array).squeeze()
+                else:
+                    # If decoding failed or was skipped, manually decode from bytes
+                    audio_bytes = item["audio"]["bytes"]
+                    waveform, sample_rate = torchaudio.load(io.BytesIO(audio_bytes))
+                    audio_tensor = waveform.squeeze()
 
-    val = batch[0][label_key]
-    if isinstance(val, str):
-        labels = torch.tensor([shared_emotions.str2int(item[label_key].lower().strip()) for item in batch])
-    else:
-        labels = torch.as_tensor([item[label_key] for item in batch], dtype=torch.long)
+                processed_audio.append(audio_tensor)
 
-    return audio_padded, labels
+                val = item[label_key]
+                if isinstance(val, str):
+                    processed_labels.append(shared_emotions.str2int(val.lower().strip()))
+                else:
+                    processed_labels.append(val)
+
+            except Exception as e:
+                print(f"Skipping corrupted sample: {e}")
+                continue
+
+        if not processed_audio:
+            return torch.empty(0), torch.empty(0)
+
+        audio_padded = pad_sequence(processed_audio, batch_first=True)
+        labels = torch.as_tensor(processed_labels, dtype=torch.long)
+        return audio_padded, labels
 
 def is_audio_valid(example):
     try:
@@ -92,14 +116,12 @@ def get_data():
     ch_test = DataLoader(ch_test, batch_size=64, shuffle=False, num_workers=0, collate_fn=speech_collate_fn)
 
     english_dataset = load_dataset("En1gma02/english_emotions", split="train")
-    english_clean = english_dataset.cast_column("audio", Audio(decode=False))
-    english_filtered = english_clean.filter(
+    english_final = english_dataset.cast_column("audio", Audio(decode=False))
+    english_filtered = english_final.filter(
         lambda x: str(x["style"]).lower().strip() in target_emotions
     )
     english_filtered = english_filtered.map(encode_labels)
-    english_final = english_filtered.cast_column("audio", Audio(sampling_rate=16000, decode=True))
-    english_final = english_final.cast_column("style", shared_emotions)
-    english_final = english_final.with_format("torch", columns=["audio", "style"])
+    english_final = english_filtered.with_format("torch", columns=["audio", "style"])
     english_train_size = int(0.8 * len(english_final))
     english_train_split, english_test_split = random_split(
         english_final,

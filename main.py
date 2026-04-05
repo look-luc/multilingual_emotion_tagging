@@ -4,6 +4,7 @@ from data import get_data
 
 def main():
     dataset = get_data.get_data()
+    print(dataset['train']['english'].value())
     return 0
 
 if __name__ == '__main__':

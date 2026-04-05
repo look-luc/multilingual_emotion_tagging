@@ -2,6 +2,14 @@ import kagglehub
 import torch
 from datasets import load_dataset, load_from_disk
 from torch.utils.data import DataLoader, TensorDataset, random_split
+from torch.nn.utils.rnn import pad_sequence
+
+
+def speech_collate_fn(batch):
+    audio_tensors = [item["audio"]["array"] for item in batch]
+    audio_padded = pad_sequence(audio_tensors, batch_first=True)
+    labels = torch.tensor([item["label"] for item in batch])
+    return {"input_values": audio_padded, "labels": labels}
 
 def get_data():
     japanese_train = load_dataset(
@@ -57,7 +65,6 @@ def get_data():
 
     spanish_path = kagglehub.dataset_download("angeluxarmenta/ses-sd")
     spanish = load_dataset("audiofolder", data_dir=spanish_path, split="train")
-    spanish = spanish.select_columns(["audio", "label"])
     spanish = spanish.with_format("torch")
     spanish_size = int(0.8*len(spanish))
     span_train, span_test = random_split(
@@ -65,12 +72,12 @@ def get_data():
         [spanish_size, len(spanish)-spanish_size],
         generator=torch.Generator().manual_seed(42)
     )
-    spanish_train = DataLoader(span_train, batch_size=64, shuffle=True, num_workers=0)
-    spanish_test = DataLoader(span_test, batch_size=64, shuffle=False, num_workers=0)
+
+    spanish_train = DataLoader(span_train, batch_size=64, shuffle=True, num_workers=0, collate_fn=speech_collate_fn)
+    spanish_test = DataLoader(span_test, batch_size=64, shuffle=False, num_workers=0, collate_fn=speech_collate_fn)
 
     arabic_path = kagglehub.dataset_download("a13x10/basic-arabic-vocal-emotions-dataset")
     arabic = load_dataset("audiofolder", data_dir=arabic_path, split="train")
-    arabic = arabic.select_columns(["audio", "label"])
     arabic = arabic.with_format("torch")
     arabic_size = int(0.8*len(arabic))
     arabic_train, arabic_test = random_split(
@@ -78,8 +85,8 @@ def get_data():
         [arabic_size, len(arabic)-arabic_size],
         generator=torch.Generator().manual_seed(42)
     )
-    arabic_train = DataLoader(arabic_train, batch_size=64, shuffle=True, num_workers=0)
-    arabic_test = DataLoader(arabic_test, batch_size=64, shuffle=False, num_workers=0)
+    arabic_train = DataLoader(arabic_train, batch_size=64, shuffle=True, num_workers=0, collate_fn=speech_collate_fn)
+    arabic_test = DataLoader(arabic_test, batch_size=64, shuffle=False, num_workers=0, collate_fn=speech_collate_fn)
 
     datasets = {
         "train": {

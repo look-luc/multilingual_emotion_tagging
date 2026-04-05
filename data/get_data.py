@@ -57,6 +57,7 @@ def get_data():
 
     spanish_path = kagglehub.dataset_download("angeluxarmenta/ses-sd")
     spanish = load_dataset("audiofolder", data_dir=spanish_path, split="train")
+    spanish = spanish.select_columns(["audio", "label"])
     spanish = spanish.with_format("torch")
     spanish_size = int(0.8*len(spanish))
     span_train, span_test = random_split(
@@ -69,6 +70,7 @@ def get_data():
 
     arabic_path = kagglehub.dataset_download("a13x10/basic-arabic-vocal-emotions-dataset")
     arabic = load_dataset("audiofolder", data_dir=arabic_path, split="train")
+    arabic = arabic.select_columns(["audio", "label"])
     arabic = arabic.with_format("torch")
     arabic_size = int(0.8*len(arabic))
     arabic_train, arabic_test = random_split(

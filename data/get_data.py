@@ -10,11 +10,11 @@ except:
 import os
 os.environ["HF_DATASETS_OFFLINE"] = "0"
 os.environ["datasets_audio_decoder_backend"] = "torchaudio"
-import io
 import kagglehub
 from datasets import load_dataset, ClassLabel, Audio
 from torch.utils.data import DataLoader, random_split
 from torch.nn.utils.rnn import pad_sequence
+import traceback
 
 target_emotions = ["angry", "happy", "sad", "neutral", "fear", "disgust", "surprise"]
 shared_emotions = ClassLabel(names=target_emotions)
@@ -22,48 +22,50 @@ shared_emotions = ClassLabel(names=target_emotions)
 
 def speech_collate_fn(batch):
     processed_audio, processed_labels = [], []
-
-    # Priority check for the standardized 'label' key
-    if "label" in batch[0]:
-        label_key = "label"
-    else:
-        # Fallback for datasets not yet mapped (like 'style' in Japanese)
-        possible_keys = ["style", "emotional_state", "emotion_label"]
-        label_key = next((k for k in possible_keys if k in batch[0]), None)
-
     for item in batch:
         try:
             audio_data = item.get("audio")
-            audio_tensor = None
-            if isinstance(audio_data, dict):
-                if audio_data.get("array") is not None:
-                    audio_tensor = torch.as_tensor(audio_data["array"], dtype=torch.float32).squeeze()
-                elif "bytes" in audio_data and audio_data["bytes"]:
-                    encoded_audio = io.BytesIO(audio_data["bytes"])
-                    waveform, _ = torchaudio.load(encoded_audio)
-                    audio_tensor = waveform.squeeze()
-
-            if audio_tensor is None or audio_tensor.numel() == 0:
+            if audio_data is None:
                 continue
-            label_idx = None
-            if label_key:
-                val = item.get(label_key)
-                if isinstance(val, int):
-                    label_idx = torch.tensor(val)
-                elif isinstance(val, str):
-                    try:
-                        label_idx = torch.tensor(shared_emotions.str2int(val.lower().strip()))
-                    except:
-                        continue
-            if label_idx is not None:
+
+            audio_tensor = None
+            if hasattr(audio_data, '__call__') and not isinstance(audio_data, (torch.Tensor, dict)):
+                decoded = audio_data()
+                if isinstance(decoded, dict) and "array" in decoded:
+                    audio_tensor = decoded["array"]
+                else:
+                    audio_tensor = decoded
+            elif isinstance(audio_data, dict):
+                arr = audio_data.get("array")
+                if arr is not None:
+                    audio_tensor = torch.from_numpy(arr) if not isinstance(arr, torch.Tensor) else arr
+
+            elif isinstance(audio_data, torch.Tensor):
+                audio_tensor = audio_data
+
+            if audio_tensor is None:
+                continue
+
+            audio_tensor = audio_tensor.float()
+            if audio_tensor.ndim > 1:
+                audio_tensor = audio_tensor.mean(dim=0)
+            label_val = item.get("label") or item.get("style") or item.get("emotional_state")
+
+            if label_val is not None:
+                if isinstance(label_val, str):
+                    label_idx = torch.tensor(shared_emotions.str2int(label_val.lower().strip()))
+                else:
+                    label_idx = torch.as_tensor(label_val).long()
+
                 processed_audio.append(audio_tensor)
                 processed_labels.append(label_idx)
 
-        except Exception:
+        except Exception as e:
+            print(f"Item failed: {e}") # Keep commented unless debugging
             continue
 
     if not processed_audio:
-        return torch.empty(0), torch.empty(0)
+        return None
     features = pad_sequence(processed_audio, batch_first=True)
     labels = torch.stack(processed_labels)
     return features, labels
@@ -89,19 +91,18 @@ def get_data():
     jap_dataset = load_dataset("asahi417/jvnv-emotional-speech-corpus", split="test")
     jap_dataset = jap_dataset.map(lambda x: {"label": x["style"].lower().strip()})
     jap_dataset = jap_dataset.filter(lambda x: x["label"] in target_emotions)
+
     if len(jap_dataset) > 0:
         jap_dataset = jap_dataset.cast_column("label", shared_emotions)
-        jap_dataset = jap_dataset.cast_column("audio", Audio(sampling_rate=16000, decode=True))
-        train_size = int(0.8 * len(jap_dataset))
-        test_size = len(jap_dataset) - train_size
-        jap_train_split, jap_test_split = random_split(
-            jap_dataset, [train_size, test_size],
-            generator=torch.Generator().manual_seed(42)
-        )
-        jap_train = DataLoader(jap_train_split, batch_size=64, shuffle=True, collate_fn=speech_collate_fn)
-        jap_test = DataLoader(jap_test_split, batch_size=64, shuffle=False, collate_fn=speech_collate_fn)
-    else:
-        jap_train = jap_test = None
+        jap_dataset = jap_dataset.cast_column("audio", Audio(decode=True))
+        def decode_audio(batch):
+            return {"audio_array": [x["array"] for x in batch["audio"]]}
+        jap_dataset = jap_dataset.map(decode_audio, batched=True)
+        split_data = jap_dataset.train_test_split(test_size=0.2, seed=42)
+        jap_train_ds = split_data["train"]
+        jap_test_ds = split_data["test"]
+        jap_train = DataLoader(jap_train_ds, batch_size=64, shuffle=True, collate_fn=speech_collate_fn)
+        jap_test = DataLoader(jap_test_ds, batch_size=64, shuffle=False, collate_fn=speech_collate_fn)
 
     # bangla_train = load_dataset(
     #     "json",
@@ -146,13 +147,20 @@ def get_data():
     eng_dataset = eng_dataset.cast_column("audio", Audio(decode=False))
     eng_dataset = eng_dataset.map(lambda x: {"label": x["style"].lower().strip()})
     eng_dataset = eng_dataset.filter(lambda x: x["label"] in target_emotions)
+    eng_dataset = eng_dataset.filter(is_audio_valid)
+    eng_dataset = eng_dataset.cast_column("audio", Audio(decode=True))
     eng_dataset = eng_dataset.cast_column("label", shared_emotions)
     eng_size = int(0.8 * len(eng_dataset))
     eng_train_split, eng_test_split = random_split(
         eng_dataset, [eng_size, len(eng_dataset) - eng_size],
         generator=torch.Generator().manual_seed(42)
     )
-    eng_train = DataLoader(eng_train_split, batch_size=64, shuffle=True, collate_fn=speech_collate_fn)
+    eng_train = DataLoader(
+        eng_train_split,
+        batch_size=64,
+        shuffle=True,
+        collate_fn=speech_collate_fn
+    )
     eng_test = DataLoader(eng_test_split, batch_size=64, shuffle=False, collate_fn=speech_collate_fn)
 
     spanish_path = kagglehub.dataset_download("angeluxarmenta/ses-sd")
@@ -179,19 +187,18 @@ def get_data():
         return {"label": mapped_label}
     spanish = spanish.map(extract_label_from_path)
     spanish = spanish.filter(lambda x: x["label"] in target_emotions)
-    spanish_train = spanish.cast_column("audio", Audio(decode=True))
-    spanish_train = spanish.cast_column("label", shared_emotions)
     if len(spanish) > 0:
-        span_train_size = int(0.8 * len(spanish))
-        span_train, span_test = random_split(
+        spanish = spanish.cast_column("audio", Audio(decode=True))
+        spanish = spanish.cast_column("label", shared_emotions)
+        span_train_split, span_test_split = random_split(
             spanish,
-            [span_train_size, len(spanish) - span_train_size],
+            [int(0.8 * len(spanish)), len(spanish) - int(0.8 * len(spanish))],
             generator=torch.Generator().manual_seed(42)
         )
-        spanish_train = DataLoader(spanish_train, batch_size=64, shuffle=True, collate_fn=speech_collate_fn)
-        spanish_test = DataLoader(span_test, batch_size=64, shuffle=False, collate_fn=speech_collate_fn)
-    else:
-        raise ValueError("Spanish dataset is still empty. Ensure the codes 'ang', 'ale', etc., exist in the filenames.")
+        span_train_ds = span_train_split.dataset.select(span_train_split.indices).with_format("python")
+        span_test_ds = span_test_split.dataset.select(span_test_split.indices).with_format("python")
+        spanish_train = DataLoader(span_train_ds, batch_size=64, shuffle=True, collate_fn=speech_collate_fn)
+        spanish_test = DataLoader(span_test_ds, batch_size=64, shuffle=False, collate_fn=speech_collate_fn)
 
     arabic_path = kagglehub.dataset_download("a13x10/basic-arabic-vocal-emotions-dataset")
     real_data_dir = None

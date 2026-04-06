@@ -22,8 +22,13 @@ shared_emotions = ClassLabel(names=target_emotions)
 
 def speech_collate_fn(batch):
     processed_audio, processed_labels = [], []
-    possible_keys = ["style", "emotional_state", "label"]
-    label_key = next((k for k in possible_keys if k in batch[0]), None)
+
+    # Check for the standardized 'label' key first
+    if "label" in batch[0]:
+        label_key = "label"
+    else:
+        possible_keys = ["style", "emotional_state", "emotion_label"]
+        label_key = next((k for k in possible_keys if k in batch[0]), None)
 
     for item in batch:
         audio_tensor = None
@@ -52,22 +57,27 @@ def speech_collate_fn(batch):
             processed_audio.append(audio_tensor)
             if label_key:
                 val = item.get(label_key)
-                if isinstance(val, (int, float)):
-                    processed_labels.append(int(val))
-                elif isinstance(val, torch.Tensor):
-                    processed_labels.append(val.item())
+                if isinstance(val, int):
+                    processed_labels.append(torch.tensor(val))
                 elif isinstance(val, str):
-                    processed_labels.append(shared_emotions.str2int(val.lower().strip()))
+                    try:
+                        processed_labels.append(torch.tensor(shared_emotions.str2int(val.lower())))
+                    except:
+                        continue
+            if len(processed_audio) < len(processed_labels):
+                processed_audio.append(audio_tensor)
+            elif len(processed_labels) < len(processed_audio):
+                processed_audio.pop()
 
         except Exception as e:
             continue
 
     if not processed_audio:
-        return torch.empty(0), torch.empty(0)
+        return None
 
-    audio_padded = pad_sequence(processed_audio, batch_first=True)
-    labels = torch.as_tensor(processed_labels, dtype=torch.long)
-    return audio_padded, labels
+    features = pad_sequence(processed_audio, batch_first=True)
+    labels = torch.stack(processed_labels)
+    return features, labels
 
 def is_audio_valid(example):
     try:
@@ -87,19 +97,22 @@ def encode_labels(example):
     return {"style": shared_emotions.str2int(example["style"].lower().strip())}
 
 def get_data():
-    japanese_train = load_dataset("line-corporation/jap-emotions", split="train")
-    japanese_train = japanese_train.map(lambda x: {"label": x["emotional_state"]})
-    japanese_train = japanese_train.filter(lambda x: x["label"] in target_emotions)
-    japanese_train = japanese_train.cast_column("label", shared_emotions)
-    japanese_train = japanese_train.cast_column("audio", Audio(sampling_rate=16000, decode=True))
-    jap_train_size = int(0.8 * len(japanese_train))
-    jap_train, jap_test = random_split(
-        japanese_train,
-        [jap_train_size, len(japanese_train) - jap_train_size],
-        generator=torch.Generator().manual_seed(42)
-    )
-    jap_train = DataLoader(jap_train, batch_size=64, shuffle=True, collate_fn=speech_collate_fn)
-    jap_test = DataLoader(jap_test, batch_size=64, shuffle=False, collate_fn=speech_collate_fn)
+    jap_dataset = load_dataset("asahi417/jvnv-emotional-speech-corpus", split="test")
+    jap_dataset = jap_dataset.map(lambda x: {"label": x["style"].lower().strip()})
+    jap_dataset = jap_dataset.filter(lambda x: x["label"] in target_emotions)
+    if len(jap_dataset) > 0:
+        jap_dataset = jap_dataset.cast_column("label", shared_emotions)
+        jap_dataset = jap_dataset.cast_column("audio", Audio(sampling_rate=16000, decode=True))
+        train_size = int(0.8 * len(jap_dataset))
+        test_size = len(jap_dataset) - train_size
+        jap_train_split, jap_test_split = random_split(
+            jap_dataset, [train_size, test_size],
+            generator=torch.Generator().manual_seed(42)
+        )
+        jap_train = DataLoader(jap_train_split, batch_size=64, shuffle=True, collate_fn=speech_collate_fn)
+        jap_test = DataLoader(jap_test_split, batch_size=64, shuffle=False, collate_fn=speech_collate_fn)
+    else:
+        jap_train = jap_test = None
 
     # bangla_train = load_dataset(
     #     "json",

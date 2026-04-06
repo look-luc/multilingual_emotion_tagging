@@ -18,7 +18,7 @@ def speech_collate_fn(batch):
     possible_keys = ["style", "emotional_state", "label"]
     label_key = next((k for k in possible_keys if k in batch[0]), None)
     if label_key is None:
-        label_key = next(k for k in batch[0].keys() if k != "audio")
+        label_key = next((k for k in batch[0].keys() if k != "audio"), None)
 
     for item in batch:
         try:
@@ -31,11 +31,14 @@ def speech_collate_fn(batch):
                     audio_tensor = waveform.squeeze()
 
             processed_audio.append(audio_tensor)
-            val = item[label_key]
-            if isinstance(val, str):
-                processed_labels.append(shared_emotions.str2int(val.lower().strip()))
+            if label_key is not None and label_key in item:
+                val = item[label_key]
+                if isinstance(val, str):
+                    processed_labels.append(shared_emotions.str2int(val.lower().strip()))
+                else:
+                    processed_labels.append(int(val))
             else:
-                processed_labels.append(int(val))
+                processed_labels.append(-1)
 
         except Exception as e:
             print(f"Skipping corrupted sample: {e}")

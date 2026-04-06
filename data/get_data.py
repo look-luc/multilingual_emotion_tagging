@@ -1,6 +1,5 @@
 import torch
 import torchaudio
-import io
 import kagglehub
 from datasets import load_dataset, ClassLabel, Audio
 from torch.utils.data import DataLoader, random_split
@@ -12,7 +11,6 @@ shared_emotions = ClassLabel(names=target_emotions)
 
 def speech_collate_fn(batch):
     processed_audio, processed_labels = [], []
-
     possible_keys = ["style", "emotional_state", "label"]
     label_key = next((k for k in possible_keys if k in batch[0]), None)
     if label_key is None:
@@ -27,7 +25,6 @@ def speech_collate_fn(batch):
                 elif "path" in item["audio"]:
                     waveform, sample_rate = torchaudio.load(item["audio"]["path"])
                     audio_tensor = waveform.squeeze()
-
             elif isinstance(item["audio"], torch.Tensor):
                 audio_tensor = item["audio"].squeeze()
 
@@ -37,15 +34,16 @@ def speech_collate_fn(batch):
             processed_audio.append(audio_tensor)
             if label_key is not None and label_key in item:
                 val = item[label_key]
+                # If it's a string, we look it up in ClassLabel
                 if isinstance(val, str):
                     processed_labels.append(shared_emotions.str2int(val.lower().strip()))
+                # If it's an int, we assume it's already aligned with shared_emotions
                 else:
                     processed_labels.append(int(val))
             else:
                 processed_labels.append(-1)
-
         except Exception as e:
-            print(f"Skipping corrupted sample: {e}")
+            # This is where the Spanish label error was being caught and silenced
             continue
 
     if not processed_audio:
@@ -74,9 +72,13 @@ def encode_labels(example):
 def get_data():
     japanese_train = load_dataset("asahi417/jvnv-emotional-speech-corpus", split="test")
     japanese_train = japanese_train.cast_column("audio", Audio(decode=True))
+    japanese_train = japanese_train.map(lambda x: {"style": x["style"].lower().strip()})
+    japanese_train = japanese_train.cast_column("style", shared_emotions)
+
     jap_train_size = int(0.8 * len(japanese_train))
     jap_train, jap_test = random_split(
-        japanese_train, [jap_train_size, len(japanese_train) - jap_train_size],
+        japanese_train,
+        [jap_train_size, len(japanese_train) - jap_train_size],
         generator=torch.Generator().manual_seed(42)
     )
     jap_train = DataLoader(jap_train, batch_size=64, shuffle=True, collate_fn=speech_collate_fn)
@@ -106,9 +108,12 @@ def get_data():
 
     chinese_train = load_dataset("BillyLin/CASIA_speech_emotion_recognition", split="train")
     chinese_train = chinese_train.cast_column("audio", Audio(decode=True))
+    chinese_train = chinese_train.map(lambda x: {"label": x["label"].lower().strip()})
+    chinese_train = chinese_train.cast_column("label", shared_emotions)
     ch_train_size = int(0.8 * len(chinese_train))
     ch_train, ch_test = random_split(
-        chinese_train, [ch_train_size, len(chinese_train) - ch_train_size],
+        chinese_train,
+        [ch_train_size, len(chinese_train) - ch_train_size],
         generator=torch.Generator().manual_seed(42)
     )
     ch_train = DataLoader(ch_train, batch_size=64, shuffle=True, collate_fn=speech_collate_fn)
@@ -119,9 +124,11 @@ def get_data():
     english_filtered = english_clean.filter(lambda x: str(x["style"]).lower().strip() in target_emotions)
     english_filtered = english_filtered.map(encode_labels)
     english_final = english_filtered.cast_column("audio", Audio(decode=True))
+    english_final = english_final.cast_column("style", shared_emotions)
     eng_train_size = int(0.8 * len(english_final))
     eng_train_split, eng_test_split = random_split(
-        english_final, [eng_train_size, len(english_final) - eng_train_size],
+        english_final,
+        [eng_train_size, len(english_final) - eng_train_size],
         generator=torch.Generator().manual_seed(42)
     )
     eng_train = DataLoader(eng_train_split, batch_size=64, shuffle=True, collate_fn=speech_collate_fn)
@@ -130,9 +137,19 @@ def get_data():
     spanish_path = kagglehub.dataset_download("angeluxarmenta/ses-sd")
     spanish = load_dataset("audiofolder", data_dir=spanish_path, split="train")
     spanish = spanish.cast_column("audio", Audio(decode=True))
+    spanish_map = {
+        "alegria": "happy", "asco": "disgust", "enojo": "angry",
+        "miedo": "fear", "neutro": "neutral", "sorpresa": "surprise", "tristeza": "sad"
+    }
+    def fix_spanish_labels(example):
+        lbl_name = spanish.features["label"].int2str(example["label"]).lower().strip()
+        return {"label": spanish_map.get(lbl_name, lbl_name)}
+    spanish = spanish.map(fix_spanish_labels)
+    spanish = spanish.cast_column("label", shared_emotions)
     span_train_size = int(0.8 * len(spanish))
     span_train, span_test = random_split(
-        spanish, [span_train_size, len(spanish) - span_train_size],
+        spanish,
+        [span_train_size, len(spanish) - span_train_size],
         generator=torch.Generator().manual_seed(42)
     )
     spanish_train = DataLoader(span_train, batch_size=64, shuffle=True, collate_fn=speech_collate_fn)
@@ -141,9 +158,16 @@ def get_data():
     arabic_path = kagglehub.dataset_download("a13x10/basic-arabic-vocal-emotions-dataset")
     arabic = load_dataset("audiofolder", data_dir=arabic_path, split="train")
     arabic = arabic.cast_column("audio", Audio(decode=True))
+
+    # Arabic folder names are already English but might have different capitalization
+    arabic = arabic.map(lambda x: {
+        "label": arabic.features["label"].int2str(x["label"]).lower().strip().replace("surprised", "surprise")})
+    arabic = arabic.cast_column("label", shared_emotions)
+
     arabic_size = int(0.8 * len(arabic))
     arabic_train_split, arabic_test_split = random_split(
-        arabic, [arabic_size, len(arabic) - arabic_size],
+        arabic,
+        [arabic_size, len(arabic) - arabic_size],
         generator=torch.Generator().manual_seed(42)
     )
     arabic_train = DataLoader(arabic_train_split, batch_size=64, shuffle=True, collate_fn=speech_collate_fn)

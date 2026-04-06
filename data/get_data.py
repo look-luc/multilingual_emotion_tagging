@@ -1,6 +1,15 @@
 import torch
 import torchaudio
+try:
+    torchaudio.set_audio_backend("sox_io")
+except:
+    try:
+        torchaudio.set_audio_backend("soundfile")
+    except:
+        pass
 import os
+os.environ["HF_DATASETS_OFFLINE"] = "0"
+os.environ["datasets_audio_decoder_backend"] = "torchaudio"
 import kagglehub
 from datasets import load_dataset, ClassLabel, Audio
 from torch.utils.data import DataLoader, random_split
@@ -19,29 +28,36 @@ def speech_collate_fn(batch):
         audio_tensor = None
         try:
             audio_data = item.get("audio")
-            if isinstance(audio_data, torch.Tensor):
-                audio_tensor = audio_data.squeeze()
-            elif isinstance(audio_data, dict):
-                if "array" in audio_data and audio_data["array"] is not None:
-                    # Convert to tensor; handle both list and ndarray
-                    arr = audio_data["array"]
-                    audio_tensor = torch.tensor(arr, dtype=torch.float32).squeeze()
+            if isinstance(audio_data, dict):
+                array = audio_data.get("array")
+                if array is not None:
+                    audio_tensor = torch.as_tensor(array, dtype=torch.float32).squeeze()
                 elif "path" in audio_data:
                     waveform, _ = torchaudio.load(audio_data["path"])
                     audio_tensor = waveform.squeeze()
+
+            elif isinstance(audio_data, torch.Tensor):
+                audio_tensor = audio_data.squeeze()
+
+            elif isinstance(audio_data, list):
+                audio_tensor = torch.tensor(audio_data, dtype=torch.float32).squeeze()
+
             if audio_tensor is None or audio_tensor.numel() == 0:
                 continue
 
             processed_audio.append(audio_tensor)
-            val = item.get(label_key)
-            if isinstance(val, str):
-                processed_labels.append(shared_emotions.str2int(val.lower().strip()))
-            elif val is not None:
-                processed_labels.append(int(val))
+            if label_key:
+                val = item.get(label_key)
+                if isinstance(val, (int, float)):
+                    processed_labels.append(int(val))
+                elif isinstance(val, torch.Tensor):
+                    processed_labels.append(val.item())
+                elif isinstance(val, str):
+                    processed_labels.append(shared_emotions.str2int(val.lower().strip()))
 
         except Exception as e:
-            print(f"Error processing sample: {e}")
             continue
+
     if not processed_audio:
         return torch.empty(0), torch.empty(0)
 
@@ -82,27 +98,27 @@ def get_data():
     jap_train = DataLoader(jap_train, batch_size=64, shuffle=True, collate_fn=speech_collate_fn)
     jap_test = DataLoader(jap_test, batch_size=64, shuffle=False, collate_fn=speech_collate_fn)
 
-    bangla_train = load_dataset(
-        "json",
-        data_files="https://huggingface.co/datasets/sustcsenlp/bn_emotion_speech_corpus/resolve/main/train.jsonl",
-        split="train"
-    ).select_columns(["path", "emotional_state"]).rename_column("path", "audio")
-    bangla_train = bangla_train.cast_column("audio", Audio(decode=False))
-    bangla_train = bangla_train.filter(is_audio_valid, load_from_cache_file=False)
-    bangla_train = bangla_train.cast_column("audio", Audio(decode=True))
-    bangla_train = bangla_train.map(lambda x: {
-        "emotional_state": "angry" if x["emotional_state"].lower().strip() == "anger" else x[
-            "emotional_state"].lower().strip()
-    })
-    bangla_train = bangla_train.cast_column("emotional_state", shared_emotions)
-    bangla_train = bangla_train.with_format("torch")
-    ban_train_size = int(0.8 * len(bangla_train))
-    ban_test_size = len(bangla_train) - ban_train_size
-    ban_train, ban_test = random_split(
-        bangla_train, [ban_train_size, ban_test_size], generator=torch.Generator().manual_seed(42)
-    )
-    ban_train = DataLoader(ban_train, batch_size=64, shuffle=True, num_workers=0, collate_fn=speech_collate_fn)
-    ban_test = DataLoader(ban_test, batch_size=64, shuffle=False, num_workers=0, collate_fn=speech_collate_fn)
+    # bangla_train = load_dataset(
+    #     "json",
+    #     data_files="https://huggingface.co/datasets/sustcsenlp/bn_emotion_speech_corpus/resolve/main/train.jsonl",
+    #     split="train"
+    # ).select_columns(["path", "emotional_state"]).rename_column("path", "audio")
+    # bangla_train = bangla_train.cast_column("audio", Audio(decode=True))
+    # bangla_train = bangla_train.filter(is_audio_valid, load_from_cache_file=False)
+    # bangla_train = bangla_train.cast_column("audio", Audio(decode=True))
+    # bangla_train = bangla_train.map(lambda x: {
+    #     "emotional_state": "angry" if x["emotional_state"].lower().strip() == "anger" else x[
+    #         "emotional_state"].lower().strip()
+    # })
+    # bangla_train = bangla_train.cast_column("emotional_state", shared_emotions)
+    # bangla_train = bangla_train.with_format("torch")
+    # ban_train_size = int(0.8 * len(bangla_train))
+    # ban_test_size = len(bangla_train) - ban_train_size
+    # ban_train, ban_test = random_split(
+    #     bangla_train, [ban_train_size, ban_test_size], generator=torch.Generator().manual_seed(42)
+    # )
+    # ban_train = DataLoader(ban_train, batch_size=64, shuffle=True, num_workers=0, collate_fn=speech_collate_fn)
+    # ban_test = DataLoader(ban_test, batch_size=64, shuffle=False, num_workers=0, collate_fn=speech_collate_fn)
 
     chinese_train = load_dataset("BillyLin/CASIA_speech_emotion_recognition", split="train")
     chinese_train = chinese_train.cast_column("audio", Audio(decode=True))
@@ -121,16 +137,15 @@ def get_data():
     ch_train = DataLoader(ch_train, batch_size=64, shuffle=True, collate_fn=speech_collate_fn)
     ch_test = DataLoader(ch_test, batch_size=64, shuffle=False, collate_fn=speech_collate_fn)
 
-    english_dataset = load_dataset("En1gma02/english_emotions", split="train")
-    english_clean = english_dataset.cast_column("audio", Audio(decode=False))
-    english_filtered = english_clean.filter(lambda x: str(x["style"]).lower().strip() in target_emotions)
-    english_filtered = english_filtered.map(encode_labels)
-    english_final = english_filtered.cast_column("audio", Audio(decode=True))
-    english_final = english_final.cast_column("style", shared_emotions)
-    eng_train_size = int(0.8 * len(english_final))
+    eng_dataset = load_dataset("En1gma02/english_emotions", split="train")
+    eng_dataset = eng_dataset.cast_column("audio", Audio(decode=False))
+    eng_dataset = eng_dataset.map(lambda x: {"label": x["style"].lower().strip()})
+    eng_dataset = eng_dataset.filter(lambda x: x["label"] in target_emotions)
+    eng_dataset = eng_dataset.cast_column("label", shared_emotions)
+    eng_dataset = eng_dataset.cast_column("audio", Audio(sampling_rate=16000, decode=True))
+    eng_size = int(0.8 * len(eng_dataset))
     eng_train_split, eng_test_split = random_split(
-        english_final,
-        [eng_train_size, len(english_final) - eng_train_size],
+        eng_dataset, [eng_size, len(eng_dataset) - eng_size],
         generator=torch.Generator().manual_seed(42)
     )
     eng_train = DataLoader(eng_train_split, batch_size=64, shuffle=True, collate_fn=speech_collate_fn)
@@ -160,8 +175,8 @@ def get_data():
         return {"label": mapped_label}
     spanish = spanish.map(extract_label_from_path)
     spanish = spanish.filter(lambda x: x["label"] in target_emotions)
-    spanish = spanish.cast_column("label", shared_emotions)
-    spanish = spanish.cast_column("audio", Audio(decode=True))
+    spanish_train = spanish.cast_column("audio", Audio(decode=True))
+    spanish_train = spanish.cast_column("label", shared_emotions)
     if len(spanish) > 0:
         span_train_size = int(0.8 * len(spanish))
         span_train, span_test = random_split(
@@ -169,7 +184,7 @@ def get_data():
             [span_train_size, len(spanish) - span_train_size],
             generator=torch.Generator().manual_seed(42)
         )
-        spanish_train = DataLoader(span_train, batch_size=64, shuffle=True, collate_fn=speech_collate_fn)
+        spanish_train = DataLoader(spanish_train, batch_size=64, shuffle=True, collate_fn=speech_collate_fn)
         spanish_test = DataLoader(span_test, batch_size=64, shuffle=False, collate_fn=speech_collate_fn)
     else:
         raise ValueError("Spanish dataset is still empty. Ensure the codes 'ang', 'ale', etc., exist in the filenames.")
@@ -233,7 +248,7 @@ def get_data():
         "train": {
             "japanese": jap_train,
             "english": eng_train,
-            "bangla": ban_train,
+            # "bangla": ban_train,
             "spanish": spanish_train,
             "arabic": arabic_train,
             "chinese": ch_train
@@ -241,7 +256,7 @@ def get_data():
         "test": {
             "japanese": jap_test,
             "english": eng_test,
-            "bangla": ban_test,
+#             "bangla": ban_test,
             "spanish": spanish_test,
             "arabic": arabic_test,
             "chinese": ch_test

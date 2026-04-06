@@ -10,6 +10,7 @@ except:
 import os
 os.environ["HF_DATASETS_OFFLINE"] = "0"
 os.environ["datasets_audio_decoder_backend"] = "torchaudio"
+import io
 import kagglehub
 from datasets import load_dataset, ClassLabel, Audio
 from torch.utils.data import DataLoader, random_split
@@ -32,10 +33,13 @@ def speech_collate_fn(batch):
                 array = audio_data.get("array")
                 if array is not None:
                     audio_tensor = torch.as_tensor(array, dtype=torch.float32).squeeze()
+                elif "bytes" in audio_data and audio_data["bytes"] is not None:
+                    encoded_audio = io.BytesIO(audio_data["bytes"])
+                    waveform, _ = torchaudio.load(encoded_audio)
+                    audio_tensor = waveform.squeeze()
                 elif "path" in audio_data:
                     waveform, _ = torchaudio.load(audio_data["path"])
                     audio_tensor = waveform.squeeze()
-
             elif isinstance(audio_data, torch.Tensor):
                 audio_tensor = audio_data.squeeze()
 

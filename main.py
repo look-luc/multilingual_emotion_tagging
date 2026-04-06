@@ -4,7 +4,7 @@ from data import get_data
 
 def main():
     dataset = get_data.get_data()
-    for batch_idx, batch in enumerate(dataset['train']['english']):
+    for batch_idx, batch in enumerate(dataset['train']['japanese']):
         if batch is None or (isinstance(batch, tuple) and batch[0].numel() == 0):
             print(f"Skipping empty/corrupted batch at index {batch_idx}")
             continue

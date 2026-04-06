@@ -14,7 +14,6 @@ import kagglehub
 from datasets import load_dataset, ClassLabel, Audio
 from torch.utils.data import DataLoader, random_split
 from torch.nn.utils.rnn import pad_sequence
-import traceback
 
 target_emotions = ["angry", "happy", "sad", "neutral", "fear", "disgust", "surprise"]
 shared_emotions = ClassLabel(names=target_emotions)
@@ -25,25 +24,22 @@ def speech_collate_fn(batch):
     for item in batch:
         try:
             audio_tensor = None
-            if "audio_array" in item:
-                arr = item["audio_array"]
-                # Ensure it's a tensor
-                if isinstance(arr, torch.Tensor):
-                    audio_tensor = arr.float()
-                else:
-                    audio_tensor = torch.tensor(arr).float()
-            else:
-                audio_data = item.get("audio")
-                if audio_data is not None:
-                    if hasattr(audio_data, '__call__') and not isinstance(audio_data, (torch.Tensor, dict)):
-                        decoded = audio_data()
-                        audio_tensor = decoded["array"] if isinstance(decoded, dict) else decoded
-                    elif isinstance(audio_data, dict):
-                        arr = audio_data.get("array")
-                        if arr is not None:
-                            audio_tensor = torch.from_numpy(arr) if not isinstance(arr, torch.Tensor) else arr
-                    elif isinstance(audio_data, torch.Tensor):
-                        audio_tensor = audio_data
+            audio_data = item.get("audio")
+
+            if audio_data is None:
+                continue
+
+            if hasattr(audio_data, '__call__') and not isinstance(audio_data, (torch.Tensor, dict)):
+                decoded = audio_data()
+                audio_tensor = decoded["array"] if isinstance(decoded, dict) else decoded
+
+            elif isinstance(audio_data, dict):
+                arr = audio_data.get("array")
+                if arr is not None:
+                    audio_tensor = torch.from_numpy(arr) if not isinstance(arr, torch.Tensor) else arr
+
+            elif isinstance(audio_data, torch.Tensor):
+                audio_tensor = audio_data
 
             if audio_tensor is None:
                 continue
@@ -63,6 +59,7 @@ def speech_collate_fn(batch):
         except Exception as e:
             print(f"Item failed: {e}")
             continue
+
     if not processed_audio:
         return None
     features = pad_sequence(processed_audio, batch_first=True)
@@ -94,14 +91,9 @@ def get_data():
     if len(jap_dataset) > 0:
         jap_dataset = jap_dataset.cast_column("label", shared_emotions)
         jap_dataset = jap_dataset.cast_column("audio", Audio(decode=True))
-        def decode_audio(batch):
-            return {"audio_array": [x["array"] for x in batch["audio"]]}
-        jap_dataset = jap_dataset.map(decode_audio, batched=True)
         split_data = jap_dataset.train_test_split(test_size=0.2, seed=42)
-        jap_train_ds = split_data["train"]
-        jap_test_ds = split_data["test"]
-        jap_train = DataLoader(jap_train_ds, batch_size=64, shuffle=True, collate_fn=speech_collate_fn)
-        jap_test = DataLoader(jap_test_ds, batch_size=64, shuffle=False, collate_fn=speech_collate_fn)
+        jap_train = DataLoader(split_data["train"], batch_size=64, shuffle=True, collate_fn=speech_collate_fn)
+        jap_test = DataLoader(split_data["test"], batch_size=64, shuffle=False, collate_fn=speech_collate_fn)
 
     # bangla_train = load_dataset(
     #     "json",
@@ -143,24 +135,13 @@ def get_data():
     ch_test = DataLoader(ch_test, batch_size=64, shuffle=False, collate_fn=speech_collate_fn)
 
     eng_dataset = load_dataset("En1gma02/english_emotions", split="train")
-    eng_dataset = eng_dataset.cast_column("audio", Audio(decode=False))
     eng_dataset = eng_dataset.map(lambda x: {"label": x["style"].lower().strip()})
     eng_dataset = eng_dataset.filter(lambda x: x["label"] in target_emotions)
-    eng_dataset = eng_dataset.filter(is_audio_valid)
     eng_dataset = eng_dataset.cast_column("audio", Audio(decode=True))
     eng_dataset = eng_dataset.cast_column("label", shared_emotions)
-    eng_size = int(0.8 * len(eng_dataset))
-    eng_train_split, eng_test_split = random_split(
-        eng_dataset, [eng_size, len(eng_dataset) - eng_size],
-        generator=torch.Generator().manual_seed(42)
-    )
-    eng_train = DataLoader(
-        eng_train_split,
-        batch_size=64,
-        shuffle=True,
-        collate_fn=speech_collate_fn
-    )
-    eng_test = DataLoader(eng_test_split, batch_size=64, shuffle=False, collate_fn=speech_collate_fn)
+    eng_split = eng_dataset.train_test_split(test_size=0.2, seed=42)
+    eng_train = DataLoader(eng_split["train"], batch_size=64, shuffle=True, collate_fn=speech_collate_fn)
+    eng_test = DataLoader(eng_split["test"], batch_size=64, shuffle=False, collate_fn=speech_collate_fn)
 
     spanish_path = kagglehub.dataset_download("angeluxarmenta/ses-sd")
     spanish = load_dataset("audiofolder", data_dir=spanish_path, split="train")

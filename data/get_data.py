@@ -67,174 +67,42 @@ def processing(dataset, label):
     return train_loader, test_loader
 
 def get_data():
-    jap_dataset = load_dataset("asahi417/jvnv-emotional-speech-corpus", split="test")
-    jap_dataset = jap_dataset.map(lambda x: {"label": x["style"].lower().strip()})
-    jap_dataset = jap_dataset.filter(lambda x: x["label"] in target_emotions)
+    datasets = {"train": {}, "test": {}}
 
-    if len(jap_dataset) > 0:
-        jap_dataset = jap_dataset.cast_column("label", shared_emotions)
-        jap_dataset = jap_dataset.cast_column("audio", Audio(decode=True))
-        split_data = jap_dataset.train_test_split(test_size=0.2, seed=42)
-        jap_train = DataLoader(split_data["train"], batch_size=64, shuffle=True, collate_fn=speech_collate_fn)
-        jap_test = DataLoader(split_data["test"], batch_size=64, shuffle=False, collate_fn=speech_collate_fn)
+    jap = load_dataset("asahi417/jvnv-emotional-speech-corpus", split="test")
+    datasets["train"]["japanese"], datasets["test"]["japanese"] = processing(jap, "style")
 
-    # bangla_train = load_dataset(
-    #     "json",
-    #     data_files="https://huggingface.co/datasets/sustcsenlp/bn_emotion_speech_corpus/resolve/main/train.jsonl",
-    #     split="train"
-    # ).select_columns(["path", "emotional_state"]).rename_column("path", "audio")
-    # bangla_train = bangla_train.cast_column("audio", Audio(decode=True))
-    # bangla_train = bangla_train.filter(is_audio_valid, load_from_cache_file=False)
-    # bangla_train = bangla_train.cast_column("audio", Audio(decode=True))
-    # bangla_train = bangla_train.map(lambda x: {
-    #     "emotional_state": "angry" if x["emotional_state"].lower().strip() == "anger" else x[
-    #         "emotional_state"].lower().strip()
-    # })
-    # bangla_train = bangla_train.cast_column("emotional_state", shared_emotions)
-    # bangla_train = bangla_train.with_format("torch")
-    # ban_train_size = int(0.8 * len(bangla_train))
-    # ban_test_size = len(bangla_train) - ban_train_size
-    # ban_train, ban_test = random_split(
-    #     bangla_train, [ban_train_size, ban_test_size], generator=torch.Generator().manual_seed(42)
-    # )
-    # ban_train = DataLoader(ban_train, batch_size=64, shuffle=True, num_workers=0, collate_fn=speech_collate_fn)
-    # ban_test = DataLoader(ban_test, batch_size=64, shuffle=False, num_workers=0, collate_fn=speech_collate_fn)
+    ban = load_dataset("json",
+                       data_files="https://huggingface.co/datasets/sustcsenlp/bn_emotion_speech_corpus/resolve/main/train.jsonl",
+                       split="train")
+    ban = ban.rename_column("path", "audio")
+    datasets["train"]["bangla"], datasets["test"]["bangla"] = processing(ban, "emotional_state")
 
-    chinese_train = load_dataset("BillyLin/CASIA_speech_emotion_recognition", split="train")
-    chinese_train = chinese_train.cast_column("audio", Audio(decode=True))
-    def fix_chinese_labels(example):
-        lbl_name = chinese_train.features["label"].int2str(example["label"]).lower().strip()
-        if lbl_name == "surprised": lbl_name = "surprise"
-        return {"label": lbl_name}
-    chinese_train = chinese_train.map(fix_chinese_labels)
-    chinese_train = chinese_train.cast_column("label", shared_emotions)
-    ch_train_size = int(0.8 * len(chinese_train))
-    ch_train, ch_test = random_split(
-        chinese_train,
-        [ch_train_size, len(chinese_train) - ch_train_size],
-        generator=torch.Generator().manual_seed(42)
-    )
-    ch_train = DataLoader(ch_train, batch_size=64, shuffle=True, collate_fn=speech_collate_fn)
-    ch_test = DataLoader(ch_test, batch_size=64, shuffle=False, collate_fn=speech_collate_fn)
+    ch = load_dataset("BillyLin/CASIA_speech_emotion_recognition", split="train")
+    ch = ch.map(lambda x: {"label_str": ch.features["label"].int2str(x["label"])})
+    datasets["train"]["chinese"], datasets["test"]["chinese"] = processing(ch, "label_str")
 
-    eng_dataset = load_dataset("En1gma02/english_emotions", split="train")
-    eng_dataset = eng_dataset.cast_column("audio", Audio(decode=False))
-    eng_dataset = eng_dataset.map(lambda x: {"label": x["style"].lower().strip()})
-    eng_dataset = eng_dataset.filter(lambda x: x["label"] in target_emotions)
-    eng_dataset = eng_dataset.cast_column("audio", Audio(decode=True))
-    eng_dataset = eng_dataset.cast_column("label", shared_emotions)
-    eng_split = eng_dataset.train_test_split(test_size=0.2, seed=42)
-    eng_train = DataLoader(eng_split["train"], batch_size=64, shuffle=True, collate_fn=speech_collate_fn)
-    eng_test = DataLoader(eng_split["test"], batch_size=64, shuffle=False, collate_fn=speech_collate_fn)
+    eng = load_dataset("En1gma02/english_emotions", split="train")
+    datasets["train"]["english"], datasets["test"]["english"] = processing(eng, "style")
 
-    spanish_path = kagglehub.dataset_download("angeluxarmenta/ses-sd")
-    spanish = load_dataset("audiofolder", data_dir=spanish_path, split="train")
-    spanish = spanish.cast_column("audio", Audio(decode=False))
-    spanish_code_map = {
-        "ang": "angry",
-        "ale": "happy",
-        "asc": "disgust",
-        "mie": "fear",
-        "neu": "neutral",
-        "sor": "surprise",
-        "tri": "sad"
-    }
-    def extract_label_from_path(example):
-        path = example["audio"]["path"]
-        filename = os.path.basename(path).lower()
-        mapped_label = "unknown"
-        for code, emotion in spanish_code_map.items():
-            if code in filename:
-                mapped_label = emotion
-                break
+    span_path = kagglehub.dataset_download("angeluxarmenta/ses-sd")
+    span = load_dataset("audiofolder", data_dir=span_path, split="train")
+    def map_span(ex):
+        fname = os.path.basename(ex["audio"]["path"]).lower()
+        lbl = next((v for k, v in emotion_map.items() if k in fname), "unknown")
+        return {"extracted_label": lbl}
+    span = span.map(map_span)
+    datasets["train"]["spanish"], datasets["test"]["spanish"] = processing(span, "extracted_label")
 
-        return {"label": mapped_label}
-    spanish = spanish.map(extract_label_from_path)
-    spanish = spanish.filter(lambda x: x["label"] in target_emotions)
-    if len(spanish) > 0:
-        spanish = spanish.cast_column("audio", Audio(decode=True))
-        spanish = spanish.cast_column("label", shared_emotions)
-        span_train_split, span_test_split = random_split(
-            spanish,
-            [int(0.8 * len(spanish)), len(spanish) - int(0.8 * len(spanish))],
-            generator=torch.Generator().manual_seed(42)
-        )
-        span_train_ds = span_train_split.dataset.select(span_train_split.indices).with_format("python")
-        span_test_ds = span_test_split.dataset.select(span_test_split.indices).with_format("python")
-        spanish_train = DataLoader(span_train_ds, batch_size=64, shuffle=True, collate_fn=speech_collate_fn)
-        spanish_test = DataLoader(span_test_ds, batch_size=64, shuffle=False, collate_fn=speech_collate_fn)
+    ara_path = kagglehub.dataset_download("a13x10/basic-arabic-vocal-emotions-dataset")
+    ara = load_dataset("audiofolder", data_dir=ara_path, split="train")
 
-    arabic_path = kagglehub.dataset_download("a13x10/basic-arabic-vocal-emotions-dataset")
-    real_data_dir = None
-    for root, dirs, files in os.walk(arabic_path):
-        if any(f.endswith('.wav') for f in files):
-            real_data_dir = os.path.dirname(root)
-            break
-    if real_data_dir is None: real_data_dir = arabic_path
-    arabic = load_dataset("audiofolder", data_dir=real_data_dir, split="train")
-    arabic = arabic.cast_column("audio", Audio(decode=False))
-    def add_label_column(x):
-        audio_info = x.get("audio")
-        if isinstance(audio_info, dict) and "path" in audio_info:
-            folder_name = os.path.basename(os.path.dirname(audio_info["path"]))
-        else:
-            folder_name = "unknown"
-        return {"label": folder_name}
-    if "label" not in arabic.column_names:
-        arabic = arabic.map(add_label_column)
-    arabic_norm = {
-        "anger": "angry", "0": "angry", "happiness": "happy", "1": "happy",
-        "sadness": "sad", "2": "sad", "neutral": "neutral", "3": "neutral",
-        "surprised": "surprise", "fearful": "fear", "disgusted": "disgust",
-        "exhausted": "neutral"
-    }
-    def clean_arabic_labels(x):
-        label_val = x.get("label")
-        if isinstance(label_val, int):
-            try:
-                label_str = arabic.features["label"].int2str(label_val)
-            except:
-                label_str = str(label_val)
-        else:
-            label_str = str(label_val)
-        lbl = label_str.lower().strip()
-        return {"label": arabic_norm.get(lbl, lbl)}
-    arabic = arabic.map(clean_arabic_labels)
-    arabic = arabic.filter(lambda x: x["label"] in target_emotions)
-    if len(arabic) > 0:
-        arabic = arabic.cast_column("label", shared_emotions)
-        arabic = arabic.cast_column("audio", Audio(decode=True))
-        arabic_size = max(1, int(0.8 * len(arabic)))
-        test_size = len(arabic) - arabic_size
-        if test_size <= 0:
-            arabic_size = len(arabic) - 1
-            test_size = 1
-        arabic_train_split, arabic_test_split = random_split(
-            arabic, [arabic_size, test_size],
-            generator=torch.Generator().manual_seed(42)
-        )
-        arabic_train = DataLoader(arabic_train_split, batch_size=64, shuffle=True, collate_fn=speech_collate_fn)
-        arabic_test = DataLoader(arabic_test_split, batch_size=64, shuffle=False, collate_fn=speech_collate_fn)
-    else:
-        print("Warning: Arabic dataset is empty after filtering.")
-        arabic_train = arabic_test = None
+    # Use folder names as labels
+    def map_ara(ex):
+        folder = os.path.basename(os.path.dirname(ex["audio"]["path"]))
+        return {"folder_label": folder}
 
-    datasets = {
-        "train": {
-            "japanese": jap_train,
-            "english": eng_train,
-            # "bangla": ban_train,
-            "spanish": spanish_train,
-            "arabic": arabic_train,
-            "chinese": ch_train
-        },
-        "test": {
-            "japanese": jap_test,
-            "english": eng_test,
-#             "bangla": ban_test,
-            "spanish": spanish_test,
-            "arabic": arabic_test,
-            "chinese": ch_test
-        }
-    }
+    ara = ara.map(map_ara)
+    datasets["train"]["arabic"], datasets["test"]["arabic"] = processing(ara, "folder_label")
+
     return datasets

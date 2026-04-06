@@ -14,41 +14,37 @@ def speech_collate_fn(batch):
     processed_audio, processed_labels = [], []
     possible_keys = ["style", "emotional_state", "label"]
     label_key = next((k for k in possible_keys if k in batch[0]), None)
-    if label_key is None:
-        label_key = next((k for k in batch[0].keys() if k != "audio"), None)
 
     for item in batch:
         audio_tensor = None
         try:
-            if isinstance(item["audio"], dict):
-                if "array" in item["audio"] and item["audio"]["array"] is not None:
-                    audio_tensor = torch.as_tensor(item["audio"]["array"]).squeeze()
-                elif "path" in item["audio"]:
-                    waveform, sample_rate = torchaudio.load(item["audio"]["path"])
+            audio_data = item.get("audio")
+            if isinstance(audio_data, torch.Tensor):
+                audio_tensor = audio_data.squeeze()
+            elif isinstance(audio_data, dict):
+                if "array" in audio_data and audio_data["array"] is not None:
+                    # Convert to tensor; handle both list and ndarray
+                    arr = audio_data["array"]
+                    audio_tensor = torch.tensor(arr, dtype=torch.float32).squeeze()
+                elif "path" in audio_data:
+                    waveform, _ = torchaudio.load(audio_data["path"])
                     audio_tensor = waveform.squeeze()
-            elif isinstance(item["audio"], torch.Tensor):
-                audio_tensor = item["audio"].squeeze()
-
-            if audio_tensor is None:
+            if audio_tensor is None or audio_tensor.numel() == 0:
                 continue
 
             processed_audio.append(audio_tensor)
-            if label_key is not None and label_key in item:
-                val = item[label_key]
-                # If it's a string, we look it up in ClassLabel
-                if isinstance(val, str):
-                    processed_labels.append(shared_emotions.str2int(val.lower().strip()))
-                # If it's an int, we assume it's already aligned with shared_emotions
-                else:
-                    processed_labels.append(int(val))
-            else:
-                processed_labels.append(-1)
-        except Exception as e:
-            # This is where the Spanish label error was being caught and silenced
-            continue
+            val = item.get(label_key)
+            if isinstance(val, str):
+                processed_labels.append(shared_emotions.str2int(val.lower().strip()))
+            elif val is not None:
+                processed_labels.append(int(val))
 
+        except Exception as e:
+            print(f"Error processing sample: {e}")
+            continue
     if not processed_audio:
         return torch.empty(0), torch.empty(0)
+
     audio_padded = pad_sequence(processed_audio, batch_first=True)
     labels = torch.as_tensor(processed_labels, dtype=torch.long)
     return audio_padded, labels
@@ -179,33 +175,59 @@ def get_data():
         raise ValueError("Spanish dataset is still empty. Ensure the codes 'ang', 'ale', etc., exist in the filenames.")
 
     arabic_path = kagglehub.dataset_download("a13x10/basic-arabic-vocal-emotions-dataset")
-    arabic = load_dataset("audiofolder", data_dir=arabic_path, split="train")
+    real_data_dir = None
+    for root, dirs, files in os.walk(arabic_path):
+        if any(f.endswith('.wav') for f in files):
+            real_data_dir = os.path.dirname(root)
+            break
+    if real_data_dir is None: real_data_dir = arabic_path
+    arabic = load_dataset("audiofolder", data_dir=real_data_dir, split="train")
     arabic = arabic.cast_column("audio", Audio(decode=False))
+    def add_label_column(x):
+        audio_info = x.get("audio")
+        if isinstance(audio_info, dict) and "path" in audio_info:
+            folder_name = os.path.basename(os.path.dirname(audio_info["path"]))
+        else:
+            folder_name = "unknown"
+        return {"label": folder_name}
     if "label" not in arabic.column_names:
-        def extract_arabic_label(example):
-            path = example["audio"]["path"]
-            folder_name = os.path.basename(os.path.dirname(path)).lower().strip()
-            return {"label": folder_name.replace("surprised", "surprise")}
-        arabic = arabic.map(extract_arabic_label)
+        arabic = arabic.map(add_label_column)
+    arabic_norm = {
+        "anger": "angry", "0": "angry", "happiness": "happy", "1": "happy",
+        "sadness": "sad", "2": "sad", "neutral": "neutral", "3": "neutral",
+        "surprised": "surprise", "fearful": "fear", "disgusted": "disgust",
+        "exhausted": "neutral"
+    }
     def clean_arabic_labels(x):
-        label_val = x["label"]
+        label_val = x.get("label")
         if isinstance(label_val, int):
-            label_str = arabic.features["label"].int2str(label_val)
+            try:
+                label_str = arabic.features["label"].int2str(label_val)
+            except:
+                label_str = str(label_val)
         else:
             label_str = str(label_val)
-
-        return {"label": label_str.lower().strip().replace("surprised", "surprise")}
+        lbl = label_str.lower().strip()
+        return {"label": arabic_norm.get(lbl, lbl)}
     arabic = arabic.map(clean_arabic_labels)
     arabic = arabic.filter(lambda x: x["label"] in target_emotions)
-    arabic = arabic.cast_column("label", shared_emotions)
-    arabic = arabic.cast_column("audio", Audio(decode=True))
-    arabic_size = int(0.8 * len(arabic))
-    arabic_train_split, arabic_test_split = random_split(
-        arabic, [arabic_size, len(arabic) - arabic_size],
-        generator=torch.Generator().manual_seed(42)
-    )
-    arabic_train = DataLoader(arabic_train_split, batch_size=64, shuffle=True, collate_fn=speech_collate_fn)
-    arabic_test = DataLoader(arabic_test_split, batch_size=64, shuffle=False, collate_fn=speech_collate_fn)
+    if len(arabic) > 0:
+        arabic = arabic.cast_column("label", shared_emotions)
+        arabic = arabic.cast_column("audio", Audio(decode=True))
+        arabic_size = max(1, int(0.8 * len(arabic)))
+        test_size = len(arabic) - arabic_size
+        if test_size <= 0:
+            arabic_size = len(arabic) - 1
+            test_size = 1
+        arabic_train_split, arabic_test_split = random_split(
+            arabic, [arabic_size, test_size],
+            generator=torch.Generator().manual_seed(42)
+        )
+        arabic_train = DataLoader(arabic_train_split, batch_size=64, shuffle=True, collate_fn=speech_collate_fn)
+        arabic_test = DataLoader(arabic_test_split, batch_size=64, shuffle=False, collate_fn=speech_collate_fn)
+    else:
+        print("Warning: Arabic dataset is empty after filtering.")
+        arabic_train = arabic_test = None
 
     datasets = {
         "train": {

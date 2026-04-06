@@ -143,49 +143,67 @@ def get_data():
     spanish_path = kagglehub.dataset_download("angeluxarmenta/ses-sd")
     spanish = load_dataset("audiofolder", data_dir=spanish_path, split="train")
     spanish = spanish.cast_column("audio", Audio(decode=False))
-    spanish_map = {
-        "alegria": "happy", "asco": "disgust", "enojo": "angry",
-        "miedo": "fear", "neutro": "neutral", "sorpresa": "surprise", "tristeza": "sad"
+    spanish_code_map = {
+        "ang": "angry",
+        "ale": "happy",
+        "asc": "disgust",
+        "mie": "fear",
+        "neu": "neutral",
+        "sor": "surprise",
+        "tri": "sad"
     }
     def extract_label_from_path(example):
-        path = example["audio"]["path"].lower().replace("\\", "/")
-        parts = path.split("/")
-        folder_label = None
-        for part in parts:
-            if part in spanish_map:
-                folder_label = part
+        path = example["audio"]["path"]
+        filename = os.path.basename(path).lower()
+        mapped_label = "unknown"
+        for code, emotion in spanish_code_map.items():
+            if code in filename:
+                mapped_label = emotion
                 break
-        if not folder_label:
-            folder_label = parts[-2] if len(parts) > 1 else "unknown"
-        return {"label": spanish_map.get(folder_label, folder_label)}
+
+        return {"label": mapped_label}
     spanish = spanish.map(extract_label_from_path)
     spanish = spanish.filter(lambda x: x["label"] in target_emotions)
-    if len(spanish) == 0:
-        raw_ds = load_dataset("audiofolder", data_dir=spanish_path, split="train")
-        raw_ds = raw_ds.cast_column("audio", Audio(decode=False))
-        sample_path = raw_ds[0]["audio"]["path"]
-        raise ValueError(f"Spanish dataset empty. Sample path: {sample_path}. "
-                         f"Map keys: {list(spanish_map.keys())}")
     spanish = spanish.cast_column("label", shared_emotions)
     spanish = spanish.cast_column("audio", Audio(decode=True))
-    span_train_size = int(0.8 * len(spanish))
-    span_train, span_test = random_split(
-        spanish,
-        [span_train_size, len(spanish) - span_train_size],
-        generator=torch.Generator().manual_seed(42)
-    )
-    spanish_train = DataLoader(span_train, batch_size=64, shuffle=True, collate_fn=speech_collate_fn)
-    spanish_test = DataLoader(span_test, batch_size=64, shuffle=False, collate_fn=speech_collate_fn)
+    if len(spanish) > 0:
+        span_train_size = int(0.8 * len(spanish))
+        span_train, span_test = random_split(
+            spanish,
+            [span_train_size, len(spanish) - span_train_size],
+            generator=torch.Generator().manual_seed(42)
+        )
+        spanish_train = DataLoader(span_train, batch_size=64, shuffle=True, collate_fn=speech_collate_fn)
+        spanish_test = DataLoader(span_test, batch_size=64, shuffle=False, collate_fn=speech_collate_fn)
+    else:
+        raise ValueError("Spanish dataset is still empty. Ensure the codes 'ang', 'ale', etc., exist in the filenames.")
 
     arabic_path = kagglehub.dataset_download("a13x10/basic-arabic-vocal-emotions-dataset")
     arabic = load_dataset("audiofolder", data_dir=arabic_path, split="train")
-    arabic = arabic.cast_column("audio", Audio(decode=True))
-    arabic = arabic.map(lambda x: {
-        "label": arabic.features["label"].int2str(x["label"]).lower().strip().replace("surprised", "surprise")})
+    arabic = arabic.cast_column("audio", Audio(decode=False))
+    if "label" not in arabic.column_names:
+        def extract_arabic_label(example):
+            path = example["audio"]["path"]
+            folder_name = os.path.basename(os.path.dirname(path)).lower().strip()
+            return {"label": folder_name.replace("surprised", "surprise")}
+        arabic = arabic.map(extract_arabic_label)
+    def clean_arabic_labels(x):
+        label_val = x["label"]
+        if isinstance(label_val, int):
+            label_str = arabic.features["label"].int2str(label_val)
+        else:
+            label_str = str(label_val)
+
+        return {"label": label_str.lower().strip().replace("surprised", "surprise")}
+    arabic = arabic.map(clean_arabic_labels)
+    arabic = arabic.filter(lambda x: x["label"] in target_emotions)
     arabic = arabic.cast_column("label", shared_emotions)
+    arabic = arabic.cast_column("audio", Audio(decode=True))
     arabic_size = int(0.8 * len(arabic))
-    arabic_train_split, arabic_test_split = random_split(arabic, [arabic_size, len(arabic) - arabic_size],
-                                                         generator=torch.Generator().manual_seed(42))
+    arabic_train_split, arabic_test_split = random_split(
+        arabic, [arabic_size, len(arabic) - arabic_size],
+        generator=torch.Generator().manual_seed(42)
+    )
     arabic_train = DataLoader(arabic_train_split, batch_size=64, shuffle=True, collate_fn=speech_collate_fn)
     arabic_test = DataLoader(arabic_test_split, batch_size=64, shuffle=False, collate_fn=speech_collate_fn)
 

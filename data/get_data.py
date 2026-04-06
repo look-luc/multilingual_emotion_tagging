@@ -1,6 +1,6 @@
 import torch
 import torchaudio
-import io
+import os
 import kagglehub
 from datasets import load_dataset, ClassLabel, Audio
 from torch.utils.data import DataLoader, random_split
@@ -142,24 +142,37 @@ def get_data():
 
     spanish_path = kagglehub.dataset_download("angeluxarmenta/ses-sd")
     spanish = load_dataset("audiofolder", data_dir=spanish_path, split="train")
+    spanish = spanish.cast_column("audio", Audio(decode=False))
+    spanish_map = {
+        "alegria": "happy",
+        "asco": "disgust",
+        "enojo": "angry",
+        "miedo": "fear",
+        "neutro": "neutral",
+        "sorpresa": "surprise",
+        "tristeza": "sad"
+    }
     def extract_label_from_path(example):
         path = example["audio"]["path"]
-        parts = path.split("/")
-        folder_label = parts[-2].lower().strip()
+        folder_label = os.path.basename(os.path.dirname(os.path.normpath(path))).lower().strip()
         mapped_label = spanish_map.get(folder_label, folder_label)
         return {"label": mapped_label}
-    spanish_map = {
-        "alegria": "happy", "asco": "disgust", "enojo": "angry",
-        "miedo": "fear", "neutro": "neutral", "sorpresa": "surprise", "tristeza": "sad"
-    }
     spanish = spanish.map(extract_label_from_path)
+    spanish = spanish.filter(lambda x: x["label"] in target_emotions)
     spanish = spanish.cast_column("label", shared_emotions)
     spanish = spanish.cast_column("audio", Audio(decode=True))
-    span_train_size = int(0.8 * len(spanish))
-    span_train, span_test = random_split(spanish, [span_train_size, len(spanish) - span_train_size],
-                                         generator=torch.Generator().manual_seed(42))
-    spanish_train = DataLoader(span_train, batch_size=64, shuffle=True, collate_fn=speech_collate_fn)
-    spanish_test = DataLoader(span_test, batch_size=64, shuffle=False, collate_fn=speech_collate_fn)
+    if len(spanish) > 0:
+        span_train_size = int(0.8 * len(spanish))
+        span_train, span_test = random_split(
+            spanish,
+            [span_train_size, len(spanish) - span_train_size],
+            generator=torch.Generator().manual_seed(42)
+        )
+        spanish_train = DataLoader(span_train, batch_size=64, shuffle=True, collate_fn=speech_collate_fn)
+        spanish_test = DataLoader(span_test, batch_size=64, shuffle=False, collate_fn=speech_collate_fn)
+    else:
+        raise ValueError(
+            "Spanish dataset is empty after filtering. Please check the local folder structure of the downloaded Kaggle dataset.")
 
     arabic_path = kagglehub.dataset_download("a13x10/basic-arabic-vocal-emotions-dataset")
     arabic = load_dataset("audiofolder", data_dir=arabic_path, split="train")

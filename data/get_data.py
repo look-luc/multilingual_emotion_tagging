@@ -24,33 +24,33 @@ def speech_collate_fn(batch):
     processed_audio, processed_labels = [], []
     for item in batch:
         try:
-            audio_data = item.get("audio")
-            if audio_data is None:
-                continue
-
             audio_tensor = None
-            if hasattr(audio_data, '__call__') and not isinstance(audio_data, (torch.Tensor, dict)):
-                decoded = audio_data()
-                if isinstance(decoded, dict) and "array" in decoded:
-                    audio_tensor = decoded["array"]
+            if "audio_array" in item:
+                arr = item["audio_array"]
+                # Ensure it's a tensor
+                if isinstance(arr, torch.Tensor):
+                    audio_tensor = arr.float()
                 else:
-                    audio_tensor = decoded
-            elif isinstance(audio_data, dict):
-                arr = audio_data.get("array")
-                if arr is not None:
-                    audio_tensor = torch.from_numpy(arr) if not isinstance(arr, torch.Tensor) else arr
-
-            elif isinstance(audio_data, torch.Tensor):
-                audio_tensor = audio_data
+                    audio_tensor = torch.tensor(arr).float()
+            else:
+                audio_data = item.get("audio")
+                if audio_data is not None:
+                    if hasattr(audio_data, '__call__') and not isinstance(audio_data, (torch.Tensor, dict)):
+                        decoded = audio_data()
+                        audio_tensor = decoded["array"] if isinstance(decoded, dict) else decoded
+                    elif isinstance(audio_data, dict):
+                        arr = audio_data.get("array")
+                        if arr is not None:
+                            audio_tensor = torch.from_numpy(arr) if not isinstance(arr, torch.Tensor) else arr
+                    elif isinstance(audio_data, torch.Tensor):
+                        audio_tensor = audio_data
 
             if audio_tensor is None:
                 continue
-
             audio_tensor = audio_tensor.float()
             if audio_tensor.ndim > 1:
                 audio_tensor = audio_tensor.mean(dim=0)
             label_val = item.get("label") or item.get("style") or item.get("emotional_state")
-
             if label_val is not None:
                 if isinstance(label_val, str):
                     label_idx = torch.tensor(shared_emotions.str2int(label_val.lower().strip()))
@@ -61,9 +61,8 @@ def speech_collate_fn(batch):
                 processed_labels.append(label_idx)
 
         except Exception as e:
-            print(f"Item failed: {e}") # Keep commented unless debugging
+            print(f"Item failed: {e}")
             continue
-
     if not processed_audio:
         return None
     features = pad_sequence(processed_audio, batch_first=True)

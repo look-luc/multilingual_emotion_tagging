@@ -2,83 +2,69 @@ import torch
 import torchaudio
 import os
 import kagglehub
-import datasets
 from datasets import load_dataset, ClassLabel, Audio
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader
 from torch.nn.utils.rnn import pad_sequence
 
-os.environ["datasets_audio_decoder_backend"] = "torchaudio"
-os.environ["HF_DATASETS_OFFLINE"] = "0"
-
-try:
-    torchaudio.set_audio_backend("sox_io")
-except:
-    try:
-        torchaudio.set_audio_backend("soundfile")
-    except:
-        pass
-
-datasets.config.DECODING_BACKEND = "torchaudio"
+# Environment Setup
+os.environ["datasets_audio_decoder_backend"] = "ffmpeg"
 
 target_emotions = ["angry", "happy", "sad", "neutral", "fear", "disgust", "surprise"]
 shared_emotions = ClassLabel(names=target_emotions)
 
+emotion_map = {
+    "anger": "angry", "ang": "angry", "0": "angry",
+    "happiness": "happy", "ale": "happy", "1": "happy",
+    "sadness": "sad", "tri": "sad", "2": "sad",
+    "neu": "neutral", "3": "neutral", "exhausted": "neutral",
+    "surprised": "surprise", "sor": "surprise",
+    "fearful": "fear", "mie": "fear",
+    "disgusted": "disgust", "asc": "disgust"
+}
 
 def speech_collate_fn(batch):
     processed_audio, processed_labels = [], []
     for item in batch:
         try:
             audio_data = item.get("audio")
-            if audio_data is None: continue
+            if audio_data is None or "array" not in audio_data:
+                continue
 
-            audio_tensor = None
-            if hasattr(audio_data, '__call__') and not isinstance(audio_data, (torch.Tensor, dict)):
-                decoded = audio_data()
-                audio_tensor = decoded["array"] if isinstance(decoded, dict) else decoded
-            elif isinstance(audio_data, dict):
-                arr = audio_data.get("array")
-                if arr is not None:
-                    audio_tensor = torch.from_numpy(arr) if not isinstance(arr, torch.Tensor) else arr
-            elif isinstance(audio_data, torch.Tensor):
-                audio_tensor = audio_data
+            audio_tensor = torch.from_numpy(audio_data["array"]).float()
 
-            if audio_tensor is None: continue
-
-            audio_tensor = audio_tensor.float()
+            # Mono conversion
             if audio_tensor.ndim > 1:
                 audio_tensor = audio_tensor.mean(dim=0)
 
-            label_val = item.get("label") or item.get("style")
+            label_val = item.get("label")
             if label_val is not None:
-                if isinstance(label_val, str):
-                    label_idx = torch.tensor(shared_emotions.str2int(label_val.lower().strip()))
-                else:
-                    label_idx = torch.as_tensor(label_val).long()
-
                 processed_audio.append(audio_tensor)
-                processed_labels.append(label_idx)
-        except Exception as e:
+                processed_labels.append(torch.tensor(label_val))
+        except Exception:
             continue
 
     if not processed_audio: return None
     return pad_sequence(processed_audio, batch_first=True), torch.stack(processed_labels)
 
-def is_audio_valid(example):
-    try:
-        audio_data = example.get("audio")
-        if not audio_data:
-            return False
-        if audio_data.get("bytes") is not None:
-            return len(audio_data["bytes"]) > 0
-        if audio_data.get("path") is not None:
-            return len(str(audio_data["path"])) > 0
+def normalize(item, label):
+    raw_val = str(item[label]).lower().strip()
+    return {"standard_label": emotion_map.get(raw_val, raw_val)}
 
-        return False
-    except Exception:
-        return False
+def processing(dataset, label):
+    dataset = dataset.map(lambda x: normalize(x, label))
+    dataset = dataset.filter(lambda x: x["standard_label"] != None)
 
-def encode_labels(example):
-    return {"style": shared_emotions.str2int(example["style"].lower().strip())}
+    dataset = dataset.rename_column(label, "old_label")
+    dataset = dataset.rename_column("standard_label", "label")
+    dataset = dataset.cast_column("label", shared_emotions)
+    dataset = dataset.cast_column("audio", Audio(sampling_rate=16000))
+
+    split = dataset.train_test_split(test_size=0.2, seed=42)
+
+    train_loader = DataLoader(split["train"], batch_size=32, shuffle=True, collate_fn=speech_collate_fn)
+    test_loader = DataLoader(split["test"], batch_size=32, shuffle=False, collate_fn=speech_collate_fn)
+
+    return train_loader, test_loader
 
 def get_data():
     jap_dataset = load_dataset("asahi417/jvnv-emotional-speech-corpus", split="test")
@@ -132,6 +118,7 @@ def get_data():
     ch_test = DataLoader(ch_test, batch_size=64, shuffle=False, collate_fn=speech_collate_fn)
 
     eng_dataset = load_dataset("En1gma02/english_emotions", split="train")
+    eng_dataset = eng_dataset.cast_column("audio", Audio(decode=False))
     eng_dataset = eng_dataset.map(lambda x: {"label": x["style"].lower().strip()})
     eng_dataset = eng_dataset.filter(lambda x: x["label"] in target_emotions)
     eng_dataset = eng_dataset.cast_column("audio", Audio(decode=True))

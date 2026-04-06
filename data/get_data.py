@@ -1,5 +1,6 @@
 import torch
 import torchaudio
+import io
 import kagglehub
 from datasets import load_dataset, ClassLabel, Audio
 from torch.utils.data import DataLoader, random_split
@@ -74,7 +75,6 @@ def get_data():
     japanese_train = japanese_train.cast_column("audio", Audio(decode=True))
     japanese_train = japanese_train.map(lambda x: {"style": x["style"].lower().strip()})
     japanese_train = japanese_train.cast_column("style", shared_emotions)
-
     jap_train_size = int(0.8 * len(japanese_train))
     jap_train, jap_test = random_split(
         japanese_train,
@@ -147,29 +147,20 @@ def get_data():
     spanish = spanish.map(fix_spanish_labels)
     spanish = spanish.cast_column("label", shared_emotions)
     span_train_size = int(0.8 * len(spanish))
-    span_train, span_test = random_split(
-        spanish,
-        [span_train_size, len(spanish) - span_train_size],
-        generator=torch.Generator().manual_seed(42)
-    )
+    span_train, span_test = random_split(spanish, [span_train_size, len(spanish) - span_train_size],
+                                         generator=torch.Generator().manual_seed(42))
     spanish_train = DataLoader(span_train, batch_size=64, shuffle=True, collate_fn=speech_collate_fn)
     spanish_test = DataLoader(span_test, batch_size=64, shuffle=False, collate_fn=speech_collate_fn)
 
     arabic_path = kagglehub.dataset_download("a13x10/basic-arabic-vocal-emotions-dataset")
     arabic = load_dataset("audiofolder", data_dir=arabic_path, split="train")
     arabic = arabic.cast_column("audio", Audio(decode=True))
-
-    # Arabic folder names are already English but might have different capitalization
     arabic = arabic.map(lambda x: {
         "label": arabic.features["label"].int2str(x["label"]).lower().strip().replace("surprised", "surprise")})
     arabic = arabic.cast_column("label", shared_emotions)
-
     arabic_size = int(0.8 * len(arabic))
-    arabic_train_split, arabic_test_split = random_split(
-        arabic,
-        [arabic_size, len(arabic) - arabic_size],
-        generator=torch.Generator().manual_seed(42)
-    )
+    arabic_train_split, arabic_test_split = random_split(arabic, [arabic_size, len(arabic) - arabic_size],
+                                                         generator=torch.Generator().manual_seed(42))
     arabic_train = DataLoader(arabic_train_split, batch_size=64, shuffle=True, collate_fn=speech_collate_fn)
     arabic_test = DataLoader(arabic_test_split, batch_size=64, shuffle=False, collate_fn=speech_collate_fn)
 

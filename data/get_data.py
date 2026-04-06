@@ -142,7 +142,6 @@ def get_data():
     eng_dataset = eng_dataset.map(lambda x: {"label": x["style"].lower().strip()})
     eng_dataset = eng_dataset.filter(lambda x: x["label"] in target_emotions)
     eng_dataset = eng_dataset.cast_column("label", shared_emotions)
-    eng_dataset = eng_dataset.cast_column("audio", Audio(sampling_rate=16000, decode=True))
     eng_size = int(0.8 * len(eng_dataset))
     eng_train_split, eng_test_split = random_split(
         eng_dataset, [eng_size, len(eng_dataset) - eng_size],

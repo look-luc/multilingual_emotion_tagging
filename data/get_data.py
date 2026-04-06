@@ -73,7 +73,9 @@ def encode_labels(example):
 def get_data():
     japanese_train = load_dataset("asahi417/jvnv-emotional-speech-corpus", split="test")
     japanese_train = japanese_train.cast_column("audio", Audio(decode=True))
-    japanese_train = japanese_train.map(lambda x: {"style": x["style"].lower().strip()})
+    japanese_train = japanese_train.map(lambda x: {
+        "style": "angry" if x["style"].lower().strip() == "anger" else x["style"].lower().strip()
+    })
     japanese_train = japanese_train.cast_column("style", shared_emotions)
     jap_train_size = int(0.8 * len(japanese_train))
     jap_train, jap_test = random_split(

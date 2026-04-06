@@ -144,35 +144,38 @@ def get_data():
     spanish = load_dataset("audiofolder", data_dir=spanish_path, split="train")
     spanish = spanish.cast_column("audio", Audio(decode=False))
     spanish_map = {
-        "alegria": "happy",
-        "asco": "disgust",
-        "enojo": "angry",
-        "miedo": "fear",
-        "neutro": "neutral",
-        "sorpresa": "surprise",
-        "tristeza": "sad"
+        "alegria": "happy", "asco": "disgust", "enojo": "angry",
+        "miedo": "fear", "neutro": "neutral", "sorpresa": "surprise", "tristeza": "sad"
     }
     def extract_label_from_path(example):
-        path = example["audio"]["path"]
-        folder_label = os.path.basename(os.path.dirname(os.path.normpath(path))).lower().strip()
-        mapped_label = spanish_map.get(folder_label, folder_label)
-        return {"label": mapped_label}
+        path = example["audio"]["path"].lower().replace("\\", "/")
+        parts = path.split("/")
+        folder_label = None
+        for part in parts:
+            if part in spanish_map:
+                folder_label = part
+                break
+        if not folder_label:
+            folder_label = parts[-2] if len(parts) > 1 else "unknown"
+        return {"label": spanish_map.get(folder_label, folder_label)}
     spanish = spanish.map(extract_label_from_path)
     spanish = spanish.filter(lambda x: x["label"] in target_emotions)
+    if len(spanish) == 0:
+        raw_ds = load_dataset("audiofolder", data_dir=spanish_path, split="train")
+        raw_ds = raw_ds.cast_column("audio", Audio(decode=False))
+        sample_path = raw_ds[0]["audio"]["path"]
+        raise ValueError(f"Spanish dataset empty. Sample path: {sample_path}. "
+                         f"Map keys: {list(spanish_map.keys())}")
     spanish = spanish.cast_column("label", shared_emotions)
     spanish = spanish.cast_column("audio", Audio(decode=True))
-    if len(spanish) > 0:
-        span_train_size = int(0.8 * len(spanish))
-        span_train, span_test = random_split(
-            spanish,
-            [span_train_size, len(spanish) - span_train_size],
-            generator=torch.Generator().manual_seed(42)
-        )
-        spanish_train = DataLoader(span_train, batch_size=64, shuffle=True, collate_fn=speech_collate_fn)
-        spanish_test = DataLoader(span_test, batch_size=64, shuffle=False, collate_fn=speech_collate_fn)
-    else:
-        raise ValueError(
-            "Spanish dataset is empty after filtering. Please check the local folder structure of the downloaded Kaggle dataset.")
+    span_train_size = int(0.8 * len(spanish))
+    span_train, span_test = random_split(
+        spanish,
+        [span_train_size, len(spanish) - span_train_size],
+        generator=torch.Generator().manual_seed(42)
+    )
+    spanish_train = DataLoader(span_train, batch_size=64, shuffle=True, collate_fn=speech_collate_fn)
+    spanish_test = DataLoader(span_test, batch_size=64, shuffle=False, collate_fn=speech_collate_fn)
 
     arabic_path = kagglehub.dataset_download("a13x10/basic-arabic-vocal-emotions-dataset")
     arabic = load_dataset("audiofolder", data_dir=arabic_path, split="train")

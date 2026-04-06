@@ -23,58 +23,47 @@ shared_emotions = ClassLabel(names=target_emotions)
 def speech_collate_fn(batch):
     processed_audio, processed_labels = [], []
 
-    # Check for the standardized 'label' key first
+    # Priority check for the standardized 'label' key
     if "label" in batch[0]:
         label_key = "label"
     else:
+        # Fallback for datasets not yet mapped (like 'style' in Japanese)
         possible_keys = ["style", "emotional_state", "emotion_label"]
         label_key = next((k for k in possible_keys if k in batch[0]), None)
 
     for item in batch:
-        audio_tensor = None
         try:
             audio_data = item.get("audio")
+            audio_tensor = None
             if isinstance(audio_data, dict):
-                array = audio_data.get("array")
-                if array is not None:
-                    audio_tensor = torch.as_tensor(array, dtype=torch.float32).squeeze()
-                elif "bytes" in audio_data and audio_data["bytes"] is not None:
+                if audio_data.get("array") is not None:
+                    audio_tensor = torch.as_tensor(audio_data["array"], dtype=torch.float32).squeeze()
+                elif "bytes" in audio_data and audio_data["bytes"]:
                     encoded_audio = io.BytesIO(audio_data["bytes"])
                     waveform, _ = torchaudio.load(encoded_audio)
                     audio_tensor = waveform.squeeze()
-                elif "path" in audio_data:
-                    waveform, _ = torchaudio.load(audio_data["path"])
-                    audio_tensor = waveform.squeeze()
-            elif isinstance(audio_data, torch.Tensor):
-                audio_tensor = audio_data.squeeze()
-
-            elif isinstance(audio_data, list):
-                audio_tensor = torch.tensor(audio_data, dtype=torch.float32).squeeze()
 
             if audio_tensor is None or audio_tensor.numel() == 0:
                 continue
-
-            processed_audio.append(audio_tensor)
+            label_idx = None
             if label_key:
                 val = item.get(label_key)
                 if isinstance(val, int):
-                    processed_labels.append(torch.tensor(val))
+                    label_idx = torch.tensor(val)
                 elif isinstance(val, str):
                     try:
-                        processed_labels.append(torch.tensor(shared_emotions.str2int(val.lower())))
+                        label_idx = torch.tensor(shared_emotions.str2int(val.lower().strip()))
                     except:
                         continue
-            if len(processed_audio) < len(processed_labels):
+            if label_idx is not None:
                 processed_audio.append(audio_tensor)
-            elif len(processed_labels) < len(processed_audio):
-                processed_audio.pop()
+                processed_labels.append(label_idx)
 
-        except Exception as e:
+        except Exception:
             continue
 
     if not processed_audio:
-        return None
-
+        return torch.empty(0), torch.empty(0)
     features = pad_sequence(processed_audio, batch_first=True)
     labels = torch.stack(processed_labels)
     return features, labels

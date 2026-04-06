@@ -110,7 +110,11 @@ def get_data():
 
     chinese_train = load_dataset("BillyLin/CASIA_speech_emotion_recognition", split="train")
     chinese_train = chinese_train.cast_column("audio", Audio(decode=True))
-    chinese_train = chinese_train.map(lambda x: {"label": x["label"].lower().strip()})
+    def fix_chinese_labels(example):
+        lbl_name = chinese_train.features["label"].int2str(example["label"]).lower().strip()
+        if lbl_name == "surprised": lbl_name = "surprise"
+        return {"label": lbl_name}
+    chinese_train = chinese_train.map(fix_chinese_labels)
     chinese_train = chinese_train.cast_column("label", shared_emotions)
     ch_train_size = int(0.8 * len(chinese_train))
     ch_train, ch_test = random_split(
@@ -138,16 +142,19 @@ def get_data():
 
     spanish_path = kagglehub.dataset_download("angeluxarmenta/ses-sd")
     spanish = load_dataset("audiofolder", data_dir=spanish_path, split="train")
-    spanish = spanish.cast_column("audio", Audio(decode=True))
+    def extract_label_from_path(example):
+        path = example["audio"]["path"]
+        parts = path.split("/")
+        folder_label = parts[-2].lower().strip()
+        mapped_label = spanish_map.get(folder_label, folder_label)
+        return {"label": mapped_label}
     spanish_map = {
         "alegria": "happy", "asco": "disgust", "enojo": "angry",
         "miedo": "fear", "neutro": "neutral", "sorpresa": "surprise", "tristeza": "sad"
     }
-    def fix_spanish_labels(example):
-        lbl_name = spanish.features["label"].int2str(example["label"]).lower().strip()
-        return {"label": spanish_map.get(lbl_name, lbl_name)}
-    spanish = spanish.map(fix_spanish_labels)
+    spanish = spanish.map(extract_label_from_path)
     spanish = spanish.cast_column("label", shared_emotions)
+    spanish = spanish.cast_column("audio", Audio(decode=True))
     span_train_size = int(0.8 * len(spanish))
     span_train, span_test = random_split(spanish, [span_train_size, len(spanish) - span_train_size],
                                          generator=torch.Generator().manual_seed(42))

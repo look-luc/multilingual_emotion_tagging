@@ -13,13 +13,13 @@ target_emotions = ["angry", "happy", "sad", "neutral", "fear", "disgust", "surpr
 shared_emotions = ClassLabel(names=target_emotions)
 
 emotion_map = {
-    "anger": "angry", "ang": "angry", "0": "angry",
-    "happiness": "happy", "ale": "happy", "1": "happy",
-    "sadness": "sad", "tri": "sad", "2": "sad",
-    "neu": "neutral", "3": "neutral", "exhausted": "neutral",
-    "surprised": "surprise", "sor": "surprise",
-    "fearful": "fear", "mie": "fear",
-    "disgusted": "disgust", "asc": "disgust"
+    "anger": "angry", "ang": "angry", "0": "angry", "angry": "angry",
+    "happiness": "happy", "ale": "happy", "1": "happy", "happy": "happy",
+    "sadness": "sad", "tri": "sad", "2": "sad", "sad": "sad",
+    "neu": "neutral", "3": "neutral", "exhausted": "neutral", "neutral": "neutral",
+    "surprised": "surprise", "sor": "surprise", "surprise": "surprise",
+    "fearful": "fear", "mie": "fear", "fear": "fear",
+    "disgusted": "disgust", "asc": "disgust", "disgust": "disgust"
 }
 
 
@@ -31,7 +31,6 @@ def speech_collate_fn(batch):
             continue
 
         try:
-            # Manually decode the audio bytes or path
             if isinstance(audio_data, dict) and audio_data.get("bytes"):
                 waveform, sr = torchaudio.load(io.BytesIO(audio_data["bytes"]))
             elif isinstance(audio_data, dict) and audio_data.get("path"):
@@ -39,7 +38,6 @@ def speech_collate_fn(batch):
             else:
                 continue
 
-            # Resample dynamically if not 16k
             if sr != 16000:
                 waveform = torchaudio.functional.resample(waveform, orig_freq=sr, new_freq=16000)
 
@@ -54,7 +52,6 @@ def speech_collate_fn(batch):
                 processed_labels.append(torch.tensor(label_val))
 
         except Exception as e:
-            # Silently drop the corrupted audio file and move to the next item
             continue
 
     if not processed_audio:
@@ -64,7 +61,7 @@ def speech_collate_fn(batch):
 
 def normalize(label):
     raw_val = str(label).lower().strip()
-    return {"standard_label": emotion_map.get(raw_val, raw_val)}
+    return {"standard_label": emotion_map.get(raw_val, "unknown")}
 
 
 def processing(dataset, label_column_name):

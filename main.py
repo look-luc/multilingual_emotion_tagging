@@ -4,7 +4,7 @@ from data import get_data
 
 def main():
     dataset = get_data.get_data()
-    for batch_idx, batch in enumerate(dataset['train']['bangla']):
+    for batch_idx, batch in enumerate(dataset['train']['english']):
         if batch is None:
             print(f"Skipping empty batch {batch_idx}")
             continue

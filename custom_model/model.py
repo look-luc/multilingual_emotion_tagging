@@ -3,7 +3,7 @@ from transformers import Wav2Vec2Model, Wav2Vec2Processor
 import torch.nn as nn
 
 class MultiLingEmotion(nn.Module):
-    def __init__(self, input, device):
+    def __init__(self, input):
         super(MultiLingEmotion, self).__init__()
 
         self.input = input
@@ -14,7 +14,11 @@ class MultiLingEmotion(nn.Module):
             "facebook/wav2vec2-large-960h-lv60-self",
             dtype=torch.float16,
             attn_implementation="flash_attention_2"
-        ).to(device)
-        pass
+        )
+
+        self.pooling = nn.AvgPool2d(kernel_size=2, stride=2)
+
+        self.linear = nn.Linear(self.encoder.config.hidden_size, self.vocab_size)
+
     def forward(self, x, target):
         pass

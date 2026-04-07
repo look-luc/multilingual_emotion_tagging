@@ -1,100 +1,128 @@
-import kagglehub
 import torch
-from datasets import load_dataset, load_from_disk
-from torch.utils.data import DataLoader, TensorDataset, random_split
+import os
+import io
+import kagglehub
+import torchaudio
+from datasets import load_dataset, ClassLabel, Audio
+from torch.utils.data import DataLoader
+from torch.nn.utils.rnn import pad_sequence
+
+os.environ["datasets_audio_decoder_backend"] = "ffmpeg"
+
+target_emotions = ["angry", "happy", "sad", "neutral", "fear", "disgust", "surprise"]
+shared_emotions = ClassLabel(names=target_emotions)
+
+emotion_map = {
+    "anger": "angry", "ang": "angry", "0": "angry",
+    "happiness": "happy", "ale": "happy", "1": "happy",
+    "sadness": "sad", "tri": "sad", "2": "sad",
+    "neu": "neutral", "3": "neutral", "exhausted": "neutral",
+    "surprised": "surprise", "sor": "surprise",
+    "fearful": "fear", "mie": "fear",
+    "disgusted": "disgust", "asc": "disgust"
+}
+
+
+def speech_collate_fn(batch):
+    processed_audio, processed_labels = [], []
+    for item in batch:
+        audio_data = item.get("audio")
+        if audio_data is None:
+            continue
+
+        try:
+            # Manually decode the audio bytes or path
+            if isinstance(audio_data, dict) and audio_data.get("bytes"):
+                waveform, sr = torchaudio.load(io.BytesIO(audio_data["bytes"]))
+            elif isinstance(audio_data, dict) and audio_data.get("path"):
+                waveform, sr = torchaudio.load(audio_data["path"])
+            else:
+                continue
+
+            # Resample dynamically if not 16k
+            if sr != 16000:
+                waveform = torchaudio.functional.resample(waveform, orig_freq=sr, new_freq=16000)
+
+            audio_tensor = waveform.float()
+
+            if audio_tensor.ndim > 1:
+                audio_tensor = audio_tensor.mean(dim=0)
+
+            label_val = item.get("label")
+            if label_val is not None:
+                processed_audio.append(audio_tensor)
+                processed_labels.append(torch.tensor(label_val))
+
+        except Exception as e:
+            # Silently drop the corrupted audio file and move to the next item
+            continue
+
+    if not processed_audio:
+        return None
+    else:
+        return pad_sequence(processed_audio, batch_first=True), torch.stack(processed_labels)
+
+def normalize(label):
+    raw_val = str(label).lower().strip()
+    return {"standard_label": emotion_map.get(raw_val, raw_val)}
+
+
+def processing(dataset, label_column_name):
+    dataset = dataset.map(normalize, input_columns=[label_column_name])
+    dataset = dataset.filter(lambda x: x in target_emotions, input_columns=["standard_label"])
+
+    if "label" in dataset.column_names and label_column_name != "label":
+        dataset = dataset.remove_columns(["label"])
+
+    dataset = dataset.rename_column(label_column_name, "old_label")
+    dataset = dataset.rename_column("standard_label", "label")
+
+    dataset = dataset.cast_column("label", shared_emotions)
+    dataset = dataset.cast_column("audio", Audio(sampling_rate=16000, decode=False))
+
+    split = dataset.train_test_split(test_size=0.2, seed=42)
+
+    train_loader = DataLoader(split["train"], batch_size=32, shuffle=True, collate_fn=speech_collate_fn)
+    test_loader = DataLoader(split["test"], batch_size=32, shuffle=False, collate_fn=speech_collate_fn)
+
+    return train_loader, test_loader
 
 def get_data():
-    japanese_train = load_dataset(
-        "asahi417/jvnv-emotional-speech-corpus",
-        split="test"
-    ).select_columns(
-        ["audio","style"]
-    )
-    japanese_train = japanese_train.with_format("torch")
-    jap_train_size = int(0.8 * len(japanese_train))
-    jap_test_size = len(japanese_train) - jap_train_size
-    jap_train, jap_test = random_split(
-        japanese_train, [jap_train_size, jap_test_size], generator=torch.Generator().manual_seed(42)
-    )
-    jap_train = DataLoader(jap_train, batch_size=64, shuffle=True, num_workers=0)
-    jap_test = DataLoader(jap_test, batch_size=64, shuffle=False, num_workers=0)
+    datasets = {"train": {}, "test": {}}
 
-    bangla_train = load_dataset(
-        "json",
-        data_files="https://huggingface.co/datasets/sustcsenlp/bn_emotion_speech_corpus/resolve/main/train.jsonl",
-        split="train"
-    ).select_columns(["path", "emotional_state"])
-    bangla_train = bangla_train.with_format("torch")
-    ban_train_size = int(0.8 * len(bangla_train))
-    ban_test_size = len(bangla_train) - ban_train_size
-    ban_train, ban_test = random_split(
-        bangla_train, [ban_train_size, ban_test_size], generator=torch.Generator().manual_seed(42)
-    )
-    ban_train = DataLoader(ban_train, batch_size=64, shuffle=True, num_workers=0)
-    ban_test = DataLoader(ban_test, batch_size=64, shuffle=False, num_workers=0)
+    jap = load_dataset("asahi417/jvnv-emotional-speech-corpus", split="test")
+    datasets["train"]["japanese"], datasets["test"]["japanese"] = processing(jap, "style")
 
-    chinese_train = load_dataset("BillyLin/CASIA_speech_emotion_recognition", split="train")
-    chinese_train = chinese_train.with_format("torch")
-    ch_train_size = int(0.8*len(chinese_train))
-    ch_test_size = len(chinese_train) - ch_train_size
-    ch_train, ch_test = random_split(
-        chinese_train, [ch_train_size, ch_test_size], generator=torch.Generator().manual_seed(42)
-    )
-    ch_train = DataLoader(ch_train, batch_size=64, shuffle=True, num_workers=0)
-    ch_test = DataLoader(ch_test, batch_size=64, shuffle=False, num_workers=0)
+    ban = load_dataset("json",
+                       data_files="https://huggingface.co/datasets/sustcsenlp/bn_emotion_speech_corpus/resolve/main/train.jsonl",
+                       split="train")
+    ban = ban.rename_column("path", "audio")
+    datasets["train"]["bangla"], datasets["test"]["bangla"] = processing(ban, "emotional_state")
 
-    english_train = load_dataset("En1gma02/english_emotions", split="train").select_columns(["audio", "style"])
-    english_train = english_train.with_format("torch")
-    english_train_size = int(0.8*len(english_train))
-    english_test_size = len(english_train) - english_train_size
-    english_train, english_test = random_split(
-        english_train,
-        [english_train_size, english_test_size],
-        generator=torch.Generator().manual_seed(42)
-    )
-    eng_train = DataLoader(english_train, batch_size=64, shuffle=True, num_workers=0)
-    eng_test = DataLoader(english_train, batch_size=64, shuffle=False, num_workers=0)
+    ch = load_dataset("BillyLin/CASIA_speech_emotion_recognition", split="train")
+    ch = ch.map(lambda x: {"label_str": ch.features["label"].int2str(x)}, input_columns=["label"])
+    datasets["train"]["chinese"], datasets["test"]["chinese"] = processing(ch, "label_str")
 
-    spanish_path = kagglehub.dataset_download("angeluxarmenta/ses-sd")
-    spanish = load_dataset("audiofolder", data_dir=spanish_path, split="train")
-    spanish = spanish.with_format("torch")
-    spanish_size = int(0.8*len(spanish))
-    span_train, span_test = random_split(
-        spanish,
-        [spanish_size, len(spanish)-spanish_size],
-        generator=torch.Generator().manual_seed(42)
-    )
-    spanish_train = DataLoader(span_train, batch_size=64, shuffle=True, num_workers=0)
-    spanish_test = DataLoader(span_test, batch_size=64, shuffle=False, num_workers=0)
+    eng = load_dataset("En1gma02/english_emotions", split="train")
+    datasets["train"]["english"], datasets["test"]["english"] = processing(eng, "style")
 
-    arabic_path = kagglehub.dataset_download("a13x10/basic-arabic-vocal-emotions-dataset")
-    arabic = load_dataset("audiofolder", data_dir=arabic_path, split="train")
-    arabic = arabic.with_format("torch")
-    arabic_size = int(0.8*len(arabic))
-    arabic_train, arabic_test = random_split(
-        arabic,
-        [arabic_size, len(arabic)-arabic_size],
-        generator=torch.Generator().manual_seed(42)
-    )
-    arabic_train = DataLoader(arabic_train, batch_size=64, shuffle=True, num_workers=0)
-    arabic_test = DataLoader(arabic_test, batch_size=64, shuffle=False, num_workers=0)
+    span_path = kagglehub.dataset_download("angeluxarmenta/ses-sd")
+    span = load_dataset("audiofolder", data_dir=span_path, split="train")
+    span = span.cast_column("audio", Audio(decode=False))  # FIX: Prevent torchcodec crash
+    def map_span(audio_dict):
+        fname = os.path.basename(audio_dict["path"]).lower()
+        lbl = next((v for k, v in emotion_map.items() if k in fname), "unknown")
+        return {"extracted_label": lbl}
+    span = span.map(map_span, input_columns=["audio"])
+    datasets["train"]["spanish"], datasets["test"]["spanish"] = processing(span, "extracted_label")
 
-    datasets = {
-        "train": {
-            "japanese": jap_train,
-            "english": eng_train,
-            "bangla": ban_train,
-            "spanish": spanish_train,
-            "arabic": arabic_train,
-            "chinese": ch_train
-        },
-        "test": {
-            "japanese": jap_test,
-            "english": eng_test,
-            "bangla": ban_test,
-            "spanish": spanish_test,
-            "arabic": arabic_test,
-            "chinese": ch_test
-        }
-    }
+    ara_path = kagglehub.dataset_download("a13x10/basic-arabic-vocal-emotions-dataset")
+    ara = load_dataset("audiofolder", data_dir=ara_path, split="train")
+    ara = ara.cast_column("audio", Audio(decode=False))  # FIX: Prevent torchcodec crash
+    def map_ara(audio_dict):
+        folder = os.path.basename(os.path.dirname(audio_dict["path"]))
+        return {"folder_label": folder}
+    ara = ara.map(map_ara, input_columns=["audio"])
+    datasets["train"]["arabic"], datasets["test"]["arabic"] = processing(ara, "folder_label")
+
     return datasets

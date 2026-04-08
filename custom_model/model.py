@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from transformers import Wav2Vec2Model
+from transformers import Wav2Vec2Model, BertModel
 
 class MultiLingEmotion(nn.Module):
     def __init__(self, target_emotions=None):
@@ -11,24 +11,32 @@ class MultiLingEmotion(nn.Module):
         ]
         self.num_classes = len(self.target_emotions)
 
-        self.encoder = Wav2Vec2Model.from_pretrained(
+        self.audio_encoder = Wav2Vec2Model.from_pretrained(
             "facebook/wav2vec2-large-960h-lv60-self",
             attn_implementation="eager"
         )
+        self.text_encoder = BertModel.from_pretrained("google-bert/bert-base-multilingual-cased")
 
-        self.classifier = nn.Linear(
-            self.encoder.config.hidden_size,
-            self.num_classes
+        self.classifier = nn.Sequential(
+            nn.Linear(
+                self.text_encoder.config.hidden_size + self.audio_encoder.config.hidden_size,
+                512
+            ),
+            nn.LeakyReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(512, self.num_classes)
         )
 
     def forward(self, x):
         if x.dtype != torch.float32:
             x = x.float()
 
-        outputs = self.encoder(x)
-        hidden_states = outputs.last_hidden_state
+        audio_out = self.audio_encoder(x).last_hidden_state
+        pooled_audio = torch.mean(audio_out, dim=1)
 
-        pooled = torch.mean(hidden_states, dim=1)
+        transcription_logits = self.transcriber(x).logits
+        pooled_text = torch.mean(transcription_logits, dim=1)
 
-        logits = self.classifier(pooled)
+        combined = torch.cat((pooled_audio, pooled_text), dim=1)
+        logits = self.classifier(combined)
         return logits

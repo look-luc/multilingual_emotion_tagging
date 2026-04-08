@@ -34,7 +34,7 @@ class MultiLingEmotion(nn.Module):
         audio_out = self.audio_encoder(x).last_hidden_state
         pooled_audio = torch.mean(audio_out, dim=1)
 
-        transcription_logits = self.transcriber(x).logits
+        transcription_logits = self.text_encoder(x).logits
         pooled_text = torch.mean(transcription_logits, dim=1)
 
         combined = torch.cat((pooled_audio, pooled_text), dim=1)

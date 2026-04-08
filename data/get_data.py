@@ -4,13 +4,13 @@ import io
 import kagglehub
 import torchaudio
 from datasets import load_dataset, ClassLabel, Audio
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, random_split
 from torch.nn.utils.rnn import pad_sequence
+from transformers import Wav2Vec2Model, Wav2Vec2Processor
+import torchaudio.transforms as T
 
 processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base")
 model = Wav2Vec2Model.from_pretrained("facebook/wav2vec2-base")
-
-from transformers import Wav2Vec2Processor, Wav2Vec2Model
 
 model.eval()
 CACHE_FILE = "bangla_embeddings.pt"
@@ -215,7 +215,7 @@ def add_wav2vec2_embeddings(batch):
         sampling_rate=16000,
         return_tensors="pt",
         padding=True
-    ).to(device)
+    )#.to(device)
 
     with torch.no_grad():
         outputs = model(**inputs)

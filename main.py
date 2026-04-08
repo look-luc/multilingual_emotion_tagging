@@ -21,7 +21,7 @@ def main():
     optimizer = optim.AdamW(multiling_model.parameters(), lr=1e-5, weight_decay=0.01)
 
     loss_overtime = []
-    epochs = 10
+    epochs = 5
 
     for epoch in range(epochs):
         print(f"\n===== Epoch {epoch + 1}/{epochs} =====")

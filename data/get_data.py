@@ -215,7 +215,7 @@ def add_wav2vec2_embeddings(batch):
         sampling_rate=16000,
         return_tensors="pt",
         padding=True
-    )#.to(device)
+    ).to(device)
 
     with torch.no_grad():
         outputs = model(**inputs)

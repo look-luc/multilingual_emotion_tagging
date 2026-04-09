@@ -24,5 +24,7 @@ module load anaconda
 
 set +u && conda activate multilingual_emotion_tagging && set -u
 
+export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$CONDA_PREFIX/lib/python3.10/site-packages/torch/lib:${LD_LIBRARY_PATH:-}
+
 cd "$REPO_ROOT/multilingual_emotion_tagging"
 python3 main.py

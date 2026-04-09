@@ -11,12 +11,12 @@
 #SBATCH --qos=blanca-clearlab2
 #SBATCH --mail-type=END,FAIL
 
-export HF_HOME="/projects/lude4390/.cache/huggingface"
+export HF_HOME="/projects/$USER/.cache/huggingface"
 mkdir -p $HF_HOME
 
 set -uo pipefail
 
-REPO_ROOT="/projects/lude4390/multilingual_emotion_tagging"
+REPO_ROOT="/projects/$USER/multilingual_emotion_tagging"
 cd "$REPO_ROOT"
 
 module purge

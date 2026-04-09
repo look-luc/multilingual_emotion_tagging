@@ -17,26 +17,43 @@ class MultiLingEmotion(nn.Module):
         )
         self.text_encoder = BertModel.from_pretrained("google-bert/bert-base-multilingual-cased")
 
+        self.audio_proj = nn.Linear(self.audio_encoder.config.hidden_size, 256)
+        self.text_proj = nn.Linear(self.text_encoder.config.hidden_size, 256)
+        
+        self.cross_attn = nn.MultiheadAttention(
+            embed_dim=256,
+            num_heads=4,
+            batch_first=True
+        )
+        
         self.classifier = nn.Sequential(
-            nn.Linear(
-                self.text_encoder.config.hidden_size + self.audio_encoder.config.hidden_size,
-                512
-            ),
-            nn.LeakyReLU(),
+            nn.Linear(256 * 2, 512),
+            nn.ReLU(),
             nn.Dropout(0.3),
             nn.Linear(512, self.num_classes)
         )
 
-    def forward(self, x):
-        if x.dtype != torch.float32:
-            x = x.float()
 
-        audio_out = self.audio_encoder(x).last_hidden_state
-        pooled_audio = torch.mean(audio_out, dim=1)
+    def forward(self, audio, input_ids, attention_mask):
+        audio_seq = self.audio_encoder(audio).last_hidden_state
+        text_seq = self.text_encoder(
+            input_ids=input_ids,
+            attention_mask=attention_mask
+        ).last_hidden_state
+    
+        audio_proj = self.audio_proj(audio_seq)
+        text_proj = self.text_proj(text_seq)
+    
+        text_attended, _ = self.cross_attn(
+            query=text_proj,
+            key=audio_proj,
+            value=audio_proj
+        )
 
-        transcription_logits = self.text_encoder(x).logits
-        pooled_text = torch.mean(transcription_logits, dim=1)
+        text_feat = text_attended.mean(dim=1)
+        audio_feat = audio_proj.mean(dim=1)
 
-        combined = torch.cat((pooled_audio, pooled_text), dim=1)
+        combined = torch.cat([text_feat, audio_feat], dim=1)
         logits = self.classifier(combined)
+    
         return logits

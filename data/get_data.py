@@ -6,6 +6,16 @@ import kagglehub
 from datasets import load_dataset, ClassLabel, Audio
 from torch.utils.data import DataLoader
 from torch.nn.utils.rnn import pad_sequence
+from transformers import AutoTokenizer
+from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
+
+tokenizer = AutoTokenizer.from_pretrained("google-bert/bert-base-multilingual-cased")
+asr_model_name = "facebook/wav2vec2-large-960h-lv60-self"
+asr_processor = Wav2Vec2Processor.from_pretrained(asr_model_name)
+asr_model = Wav2Vec2ForCTC.from_pretrained(asr_model_name)
+asr_model.eval()
+ASR_SAMPLE_RATE = 16000
+DEFAULT_BATCH_SIZE = 4 if torch.backends.mps.is_available() else 32
 
 os.environ["HF_DATASETS_AUDIO_DECODER_BACKEND"] = "ffmpeg"
 PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
@@ -24,6 +34,108 @@ emotion_map = {
     "disgusted": "disgust", "asc": "disgust"
 }
 
+def run_asr(waveform, sampling_rate=16000):
+    try:
+        if waveform.ndim > 1:
+            waveform = waveform.mean(dim=0)  # mono if stereo
+        if sampling_rate != 16000:
+            waveform = torchaudio.functional.resample(waveform, sampling_rate, 16000)
+
+        input_values = asr_processor(waveform, sampling_rate=16000, return_tensors="pt").input_values
+        with torch.no_grad():
+            logits = asr_model(input_values).logits
+        predicted_ids = torch.argmax(logits, dim=-1)
+        text = asr_processor.batch_decode(predicted_ids)[0]
+        return text
+    except Exception:
+        # fallback: empty string if ASR fails
+        return ""
+
+def load_waveform(audio_data):
+    if audio_data is None:
+        raise ValueError("Missing audio data")
+
+    if "array" in audio_data and audio_data["array"] is not None:
+        waveform = torch.tensor(audio_data["array"], dtype=torch.float32)
+        sampling_rate = audio_data.get("sampling_rate", ASR_SAMPLE_RATE)
+    elif "path" in audio_data and audio_data["path"]:
+        waveform, sampling_rate = torchaudio.load(audio_data["path"])
+    else:
+        raise ValueError("Audio entry has neither array nor path")
+
+    if waveform.ndim > 1:
+        waveform = waveform.mean(dim=0)
+    if sampling_rate != ASR_SAMPLE_RATE:
+        waveform = torchaudio.functional.resample(waveform, sampling_rate, ASR_SAMPLE_RATE)
+
+    return waveform
+
+def add_transcription(example):
+    existing_text = example.get("text")
+    if existing_text:
+        example["text"] = str(existing_text)
+        return example
+
+    try:
+        waveform = load_waveform(example["audio"])
+        example["text"] = run_asr(waveform)
+    except Exception:
+        example["text"] = ""
+
+    return example
+
+def prepare_text_dataset(dataset, transcribe=False):
+    dataset = dataset.cast_column("audio", Audio(sampling_rate=ASR_SAMPLE_RATE, decode=True))
+    if transcribe:
+        print("Precomputing ASR transcripts...")
+        dataset = dataset.map(add_transcription)
+    return dataset.cast_column("audio", Audio(sampling_rate=ASR_SAMPLE_RATE, decode=False))
+
+def build_audio_attention_mask(audios):
+    max_length = max(audio.size(0) for audio in audios)
+    attention_mask = torch.zeros(len(audios), max_length, dtype=torch.long)
+
+    for index, audio in enumerate(audios):
+        attention_mask[index, :audio.size(0)] = 1
+
+    return attention_mask
+
+
+def speech_text_collate_fn(batch):
+    audios, labels, texts = [], [], []
+
+    for item in batch:
+        try:
+            waveform = load_waveform(item["audio"])
+            audios.append(waveform)
+
+            labels.append(torch.tensor(item["label"], dtype=torch.long))
+
+            texts.append(str(item.get("text", "")))
+
+        except Exception:
+            continue
+
+    if len(audios) == 0:
+        return None
+
+    tokenized = tokenizer(
+        texts,
+        padding=True,
+        truncation=True,
+        return_tensors="pt"
+    )
+
+    audio_batch = pad_sequence(audios, batch_first=True)
+    audio_attention_mask = build_audio_attention_mask(audios)
+
+    return {
+        "audio": audio_batch,
+        "audio_attention_mask": audio_attention_mask,
+        "labels": torch.stack(labels),
+        "input_ids": tokenized["input_ids"],
+        "attention_mask": tokenized["attention_mask"]
+    }
 
 def speech_collate_fn(batch):
     audios, labels = [], []
@@ -32,15 +144,7 @@ def speech_collate_fn(batch):
         audio_data = item["audio"]
 
         try:
-            path = audio_data["path"]
-            waveform, sr = torchaudio.load(path)
-
-            if waveform.ndim > 1:
-                waveform = waveform.mean(dim=0)
-
-            if sr != 16000:
-                waveform = torchaudio.functional.resample(waveform, sr, 16000)
-
+            waveform = load_waveform(audio_data)
             audios.append(waveform)
             labels.append(torch.tensor(item["label"], dtype=torch.long))
 
@@ -51,8 +155,12 @@ def speech_collate_fn(batch):
     if len(audios) == 0:
         return None
 
+    audio_batch = pad_sequence(audios, batch_first=True)
+    audio_attention_mask = build_audio_attention_mask(audios)
+
     return {
-        "audio": pad_sequence(audios, batch_first=True),
+        "audio": audio_batch,
+        "audio_attention_mask": audio_attention_mask,
         "labels": torch.stack(labels)
     }
 
@@ -64,27 +172,32 @@ def label_to_tensor(example, label_field="emotional_state"):
     return example
 
 
-def processing(dataset, label_column_name):
+def processing(dataset, label_column_name, use_text=False):
     def standardize_label(example):
         raw_label = str(example.get(label_column_name, "neutral")).lower().strip()
         return {"label": emotion_map.get(raw_label, "neutral")}
     
     dataset = dataset.map(standardize_label, remove_columns=[])
     dataset = dataset.cast_column("label", shared_emotions)
-    dataset = dataset.cast_column("audio", Audio(sampling_rate=16000, decode=False))
+    if use_text:
+        dataset = prepare_text_dataset(dataset, transcribe="text" not in dataset.column_names)
+    else:
+        dataset = dataset.cast_column("audio", Audio(sampling_rate=ASR_SAMPLE_RATE, decode=False))
 
     split = dataset.train_test_split(test_size=0.2, seed=42)
 
-    train_loader = DataLoader(split["train"], batch_size=32, shuffle=True, collate_fn=speech_collate_fn) \
+    collate_fn = speech_text_collate_fn if use_text else speech_collate_fn
+
+    train_loader = DataLoader(split["train"], batch_size=DEFAULT_BATCH_SIZE, shuffle=True, collate_fn=collate_fn) \
         if len(split["train"]) > 0 else None
-    test_loader = DataLoader(split["test"], batch_size=32, shuffle=False, collate_fn=speech_collate_fn) \
+    test_loader = DataLoader(split["test"], batch_size=DEFAULT_BATCH_SIZE, shuffle=False, collate_fn=collate_fn) \
         if len(split["test"]) > 0 else None
 
     return train_loader, test_loader
 
-def safe_processing(dataset, label_column):
+def safe_processing(dataset, label_column, use_text=False):
     try:
-        return processing(dataset, label_column)
+        return processing(dataset, label_column, use_text=use_text)
     except Exception as e:
         print(f"Skipping dataset due to error: {e}")
         return None, None
@@ -95,7 +208,7 @@ def get_data():
     # Japanese
     jap = load_dataset("asahi417/jvnv-emotional-speech-corpus", split="test")
 
-    jap = jap.cast_column("audio", Audio(sampling_rate=16000, decode=True))
+    jap = jap.cast_column("audio", Audio(sampling_rate=ASR_SAMPLE_RATE, decode=True))
 
     def map_japanese_label(example):
         raw_label = example.get("style", "neutral").lower().strip()
@@ -106,19 +219,20 @@ def get_data():
     jap = jap.map(map_japanese_label)
 
     jap = jap.filter(lambda x: x["audio"] is not None and x["audio"]["array"] is not None)
+    jap = prepare_text_dataset(jap, transcribe=True)
 
     split = jap.train_test_split(test_size=0.2, seed=42)
     train_loader = DataLoader(
         split["train"],
-        batch_size=32,
+        batch_size=DEFAULT_BATCH_SIZE,
         shuffle=True,
-        collate_fn=speech_collate_fn
+        collate_fn=speech_text_collate_fn
     )
     test_loader = DataLoader(
         split["test"],
-        batch_size=32,
+        batch_size=DEFAULT_BATCH_SIZE,
         shuffle=False,
-        collate_fn=speech_collate_fn
+        collate_fn=speech_text_collate_fn
     )
 
     datasets_dict["train"]["japanese"] = train_loader
@@ -131,20 +245,20 @@ def get_data():
         data_files="https://huggingface.co/datasets/sustcsenlp/bn_emotion_speech_corpus/resolve/main/train.jsonl",
         split="train"
     ).select_columns(["path", "emotional_state"])
-    bangla = bangla.map(lambda x: {"audio": os.path.join(SUBESCO_DIR, os.path.basename(x["path"]))})
+    bangla = bangla.map(lambda x: {"audio": {"path": os.path.join(SUBESCO_DIR, os.path.basename(x["path"]))}})
     bangla = bangla.map(label_to_tensor)
     bangla = bangla.filter(lambda x: x["label"] >= 0)
-    datasets_dict["train"]["bangla"], datasets_dict["test"]["bangla"] = processing(bangla, "emotional_state")
+    datasets_dict["train"]["bangla"], datasets_dict["test"]["bangla"] = processing(bangla, "emotional_state", use_text=True)
 
     # Chinese
     ch = load_dataset("BillyLin/CASIA_speech_emotion_recognition", split="train")
     label_class = ch.features["label"]
     ch = ch.map(lambda x: {"label_str": label_class.int2str(x["label"])})
-    datasets_dict["train"]["chinese"], datasets_dict["test"]["chinese"] = processing(ch, "label_str")
+    datasets_dict["train"]["chinese"], datasets_dict["test"]["chinese"] = processing(ch, "label_str", use_text=True)
 
     # English
     eng = load_dataset("En1gma02/english_emotions", split="train")
-    datasets_dict["train"]["english"], datasets_dict["test"]["english"] = processing(eng, "style")
+    datasets_dict["train"]["english"], datasets_dict["test"]["english"] = processing(eng, "style", use_text=False)
 
     # Spanish
     span_path = kagglehub.dataset_download("angeluxarmenta/ses-sd")
@@ -163,7 +277,7 @@ def get_data():
 
     span = span.map(extract_spanish_label)
     span = span.filter(lambda x: x["label"] is not None)
-    datasets_dict["train"]["spanish"], datasets_dict["test"]["spanish"] = safe_processing(span, "label")
+    datasets_dict["train"]["spanish"], datasets_dict["test"]["spanish"] = safe_processing(span, "label", use_text=True)
 
     # Arabic
     ara_path = kagglehub.dataset_download("a13x10/basic-arabic-vocal-emotions-dataset")
@@ -179,6 +293,6 @@ def get_data():
 
     ara = ara.map(extract_arabic_label)
     ara = ara.filter(lambda x: x["label"] is not None)
-    datasets_dict["train"]["arabic"], datasets_dict["test"]["arabic"] = safe_processing(ara, "label")
+    datasets_dict["train"]["arabic"], datasets_dict["test"]["arabic"] = safe_processing(ara, "label", use_text=True)
 
     return datasets_dict

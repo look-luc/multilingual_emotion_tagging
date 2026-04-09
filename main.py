@@ -6,7 +6,9 @@ import torch.optim as optim
 import torch.nn as nn
 from sklearn.metrics import accuracy_score, f1_score
 
-
+# --------------------------
+# Device
+# --------------------------
 device = torch.device(
     "cuda" if torch.cuda.is_available()
     else "mps" if torch.backends.mps.is_available()
@@ -14,6 +16,7 @@ device = torch.device(
 )
 
 def main():
+    print(f"Using device: {device}")
     dataset = get_data.get_data()
     multiling_model = model.MultiLingEmotion().to(device)
 
@@ -21,7 +24,7 @@ def main():
     optimizer = optim.AdamW(multiling_model.parameters(), lr=1e-5, weight_decay=0.01)
 
     loss_overtime = []
-    epochs = 5
+    epochs = 10
 
     for epoch in range(epochs):
         print(f"\n===== Epoch {epoch + 1}/{epochs} =====")
@@ -41,21 +44,29 @@ def main():
                 if batch is None:
                     continue
 
-                try:
-                    features, labels = batch
-                except Exception:
-                    continue
+                audio = batch["audio"].to(device)
+                audio_attention_mask = batch.get("audio_attention_mask")
+                input_ids = batch.get("input_ids")
+                attention_mask = batch.get("attention_mask")
+                labels = batch["labels"].to(device)
 
-                features = features.to(device)
-                labels = labels.to(device)
+                if audio_attention_mask is not None:
+                    audio_attention_mask = audio_attention_mask.to(device)
+                if input_ids is not None:
+                    input_ids = input_ids.to(device)
+                if attention_mask is not None:
+                    attention_mask = attention_mask.to(device)
 
                 optimizer.zero_grad()
+                outputs = multiling_model(audio, input_ids, attention_mask, audio_attention_mask)
 
-                outputs = multiling_model(features)
                 loss = criterion(outputs, labels)
 
                 loss.backward()
                 optimizer.step()
+
+                if device.type == "mps":
+                    torch.mps.empty_cache()
 
                 total_loss += loss.item()
                 batch_count += 1
@@ -83,16 +94,24 @@ def main():
                     if batch is None:
                         continue
 
-                    try:
-                        features, labels = batch
-                    except Exception:
-                        continue
+                    audio = batch["audio"].to(device)
+                    audio_attention_mask = batch.get("audio_attention_mask")
+                    input_ids = batch.get("input_ids")
+                    attention_mask = batch.get("attention_mask")
+                    labels = batch["labels"].to(device)
 
-                    features = features.to(device)
-                    labels = labels.to(device)
+                    if audio_attention_mask is not None:
+                        audio_attention_mask = audio_attention_mask.to(device)
+                    if input_ids is not None:
+                        input_ids = input_ids.to(device)
+                    if attention_mask is not None:
+                        attention_mask = attention_mask.to(device)
 
-                    outputs = multiling_model(features)
+                    outputs = multiling_model(audio, input_ids, attention_mask, audio_attention_mask)
                     _, preds = torch.max(outputs, 1)
+
+                    if device.type == "mps":
+                        torch.mps.empty_cache()
 
                     lang_true.extend(labels.cpu().numpy())
                     lang_pred.extend(preds.cpu().numpy())
@@ -111,7 +130,8 @@ def main():
             global_f1 = f1_score(global_true, global_pred, average="macro")
 
             print(f"\nGLOBAL: acc={global_acc:.3f}, f1={global_f1:.3f}")
-            
+
+    # -------- SAVE MODEL --------
     torch.save(multiling_model.state_dict(), "multi_ling_emotion.pth")
     print("\nModel saved as multi_ling_emotion.pth")
 

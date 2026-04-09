@@ -16,11 +16,13 @@ mkdir -p $HF_HOME
 
 set -uo pipefail
 
-REPO_ROOT="/projects/$USER/multilingual_emotion_tagging"
+REPO_ROOT="/projects/$USER"
 cd "$REPO_ROOT"
 
 module purge
+module load anaconda
 
-source "$REPO_ROOT/.venv/bin/activate"
+conda activate "multilingual_emotion_tagging"
 
+cd "$REPO_ROOT/multilingual_emotion_tagging"
 python3 main.py

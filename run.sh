@@ -22,7 +22,7 @@ cd "$REPO_ROOT"
 module purge
 module load anaconda
 
-conda activate "multilingual_emotion_tagging"
+set +u && conda activate multilingual_emotion_tagging && set -u
 
 cd "$REPO_ROOT/multilingual_emotion_tagging"
 python3 main.py

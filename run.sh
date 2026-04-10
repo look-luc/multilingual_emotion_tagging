@@ -21,11 +21,12 @@ cd "$REPO_ROOT"
 
 module purge
 module load anaconda
-module load cuda/12.4
+module load cuda/12.1.1
+module load ffmpeg
 
 set +u && conda activate multilingual_emotion_tagging && set -u
 
-export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$(python3 -c 'import os, torch; print(os.path.join(os.path.dirname(torch.__file__), "lib"))'):${LD_LIBRARY_PATH:-}
-
 cd "$REPO_ROOT/multilingual_emotion_tagging"
+
+export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:${LD_LIBRARY_PATH:-}
 python3 main.py

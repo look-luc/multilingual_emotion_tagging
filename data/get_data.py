@@ -3,6 +3,7 @@ import io
 import torch
 import torchaudio
 import kagglehub
+import soundfile as sf
 from datasets import load_dataset, ClassLabel, Audio
 from torch.utils.data import DataLoader
 from torch.nn.utils.rnn import pad_sequence
@@ -58,10 +59,21 @@ def load_waveform(audio_data):
     if "array" in audio_data and audio_data["array"] is not None:
         waveform = torch.tensor(audio_data["array"], dtype=torch.float32)
         sampling_rate = audio_data.get("sampling_rate", ASR_SAMPLE_RATE)
+    elif "bytes" in audio_data and audio_data["bytes"] is not None:
+        waveform, sampling_rate = sf.read(io.BytesIO(audio_data["bytes"]), dtype="float32")
+        waveform = torch.tensor(waveform, dtype=torch.float32)
     elif "path" in audio_data and audio_data["path"]:
-        waveform, sampling_rate = torchaudio.load(audio_data["path"])
+        audio_path = audio_data["path"]
+        if not os.path.exists(audio_path):
+            raise FileNotFoundError(f"Audio file not found: {audio_path}")
+
+        try:
+            waveform, sampling_rate = torchaudio.load(audio_path)
+        except Exception:
+            waveform, sampling_rate = sf.read(audio_path, dtype="float32")
+            waveform = torch.tensor(waveform, dtype=torch.float32)
     else:
-        raise ValueError("Audio entry has neither array nor path")
+        raise ValueError("Audio entry has neither array, bytes, nor path")
 
     if waveform.ndim > 1:
         waveform = waveform.mean(dim=0)
@@ -89,7 +101,31 @@ def prepare_text_dataset(dataset, transcribe=False):
     if transcribe:
         print("Precomputing ASR transcripts...")
         dataset = dataset.map(add_transcription)
-    return dataset.cast_column("audio", Audio(sampling_rate=ASR_SAMPLE_RATE, decode=False))
+    return dataset
+
+
+def filter_existing_audio(dataset, dataset_name):
+    if "audio" not in dataset.column_names:
+        return dataset
+
+    before = len(dataset)
+
+    def has_audio_source(example):
+        audio = example.get("audio")
+        if audio is None:
+            return False
+        if audio.get("array") is not None or audio.get("bytes") is not None:
+            return True
+        audio_path = audio.get("path")
+        return bool(audio_path) and os.path.exists(audio_path)
+
+    dataset = dataset.filter(has_audio_source)
+    after = len(dataset)
+
+    if after != before:
+        print(f"[DATA] {dataset_name}: kept {after}/{before} rows with accessible audio")
+
+    return dataset
 
 def build_audio_attention_mask(audios):
     max_length = max(audio.size(0) for audio in audios)
@@ -244,11 +280,16 @@ def processing(dataset, label_column_name, use_text=False):
         print(f"[DATA] {label_column_name}: no rows left after filtering")
         return None, None
 
+    dataset = filter_existing_audio(dataset, label_column_name)
+    if len(dataset) == 0:
+        print(f"[DATA] {label_column_name}: no rows left after audio validation")
+        return None, None
+
     dataset = dataset.cast_column("label", shared_emotions)
     if use_text:
         dataset = prepare_text_dataset(dataset, transcribe="text" not in dataset.column_names)
     else:
-        dataset = dataset.cast_column("audio", Audio(sampling_rate=ASR_SAMPLE_RATE, decode=False))
+        dataset = dataset.cast_column("audio", Audio(sampling_rate=ASR_SAMPLE_RATE, decode=True))
 
     split = dataset.train_test_split(test_size=0.2, seed=42)
     print(
@@ -318,6 +359,7 @@ def get_data():
     bangla = bangla.map(lambda x: {"audio": {"path": os.path.join(SUBESCO_DIR, os.path.basename(x["path"]))}})
     bangla = bangla.map(label_to_tensor)
     bangla = bangla.filter(lambda x: x["label"] >= 0)
+    bangla = filter_existing_audio(bangla, "bangla")
     datasets_dict["train"]["bangla"], datasets_dict["test"]["bangla"] = processing(bangla, "emotional_state", use_text=True)
 
     # Chinese
@@ -333,7 +375,7 @@ def get_data():
     # Spanish
     span_path = kagglehub.dataset_download("angeluxarmenta/ses-sd")
     span = load_dataset("audiofolder", data_dir=span_path, split="train")
-    span = span.cast_column("audio", Audio(sampling_rate=16000, decode=False))
+    span = span.cast_column("audio", Audio(sampling_rate=16000, decode=True))
 
     def extract_spanish_label(x):
         audio_path = x["audio"]["path"] if "audio" in x and "path" in x["audio"] else None
@@ -352,7 +394,7 @@ def get_data():
     # Arabic
     ara_path = kagglehub.dataset_download("a13x10/basic-arabic-vocal-emotions-dataset")
     ara = load_dataset("audiofolder", data_dir=ara_path, split="train")
-    ara = ara.cast_column("audio", Audio(sampling_rate=16000, decode=False))
+    ara = ara.cast_column("audio", Audio(sampling_rate=16000, decode=True))
 
     def extract_arabic_label(x):
         audio_path = x["audio"]["path"] if "audio" in x and "path" in x["audio"] else None

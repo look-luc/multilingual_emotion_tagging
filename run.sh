@@ -16,11 +16,17 @@ mkdir -p $HF_HOME
 
 set -uo pipefail
 
-REPO_ROOT="/projects/$USER/multilingual_emotion_tagging"
+REPO_ROOT="/projects/$USER"
 cd "$REPO_ROOT"
 
 module purge
+module load anaconda
+module load cuda/12.1.1
+#module load ffmpeg
 
-source "$REPO_ROOT/.venv/bin/activate"
+set +u && conda activate multilingual_emotion_tagging && set -u
 
+cd "$REPO_ROOT/multilingual_emotion_tagging"
+
+export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$(python3 -m site --user-site | sed 's/python.*/nvidia\/npp\/lib/'):$LD_LIBRARY_PATH
 python3 main.py

@@ -156,7 +156,7 @@ def speech_text_collate_fn(batch):
     }
 
 def speech_collate_fn(batch):
-    audios, labels = []
+    audios, labels = [], []
     skipped = 0
 
     for idx, item in enumerate(batch):
@@ -204,12 +204,46 @@ def label_to_tensor(example, label_field="emotional_state"):
     return example
 
 
+def summarize_labels(dataset, label_column_name, dataset_name="dataset"):
+    counts = {}
+    missing = 0
+
+    for raw_label in dataset[label_column_name]:
+        normalized = emotion_map.get(str(raw_label).lower().strip())
+        if normalized is None:
+            missing += 1
+            continue
+        counts[normalized] = counts.get(normalized, 0) + 1
+
+    if counts:
+        ordered = ", ".join(
+            f"{emotion}={counts.get(emotion, 0)}" for emotion in target_emotions if counts.get(emotion, 0) > 0
+        )
+        print(f"[DATA] {dataset_name}: retained labels -> {ordered}")
+    else:
+        print(f"[DATA] {dataset_name}: no supported labels found")
+
+    if missing > 0:
+        print(f"[DATA] {dataset_name}: filtered {missing} rows with unsupported labels from '{label_column_name}'")
+
+
 def processing(dataset, label_column_name, use_text=False):
     def standardize_label(example):
-        raw_label = str(example.get(label_column_name, "neutral")).lower().strip()
-        return {"label": emotion_map.get(raw_label, "neutral")}
-    
+        raw_label = str(example.get(label_column_name, "")).lower().strip()
+        return {"label": emotion_map.get(raw_label)}
+
+    initial_count = len(dataset)
+    summarize_labels(dataset, label_column_name)
     dataset = dataset.map(standardize_label, remove_columns=[])
+    dataset = dataset.filter(lambda x: x["label"] is not None)
+
+    filtered_count = len(dataset)
+    print(f"[DATA] {label_column_name}: kept {filtered_count}/{initial_count} rows after label normalization")
+
+    if filtered_count == 0:
+        print(f"[DATA] {label_column_name}: no rows left after filtering")
+        return None, None
+
     dataset = dataset.cast_column("label", shared_emotions)
     if use_text:
         dataset = prepare_text_dataset(dataset, transcribe="text" not in dataset.column_names)
@@ -217,6 +251,10 @@ def processing(dataset, label_column_name, use_text=False):
         dataset = dataset.cast_column("audio", Audio(sampling_rate=ASR_SAMPLE_RATE, decode=False))
 
     split = dataset.train_test_split(test_size=0.2, seed=42)
+    print(
+        f"[DATA] {label_column_name}: train={len(split['train'])}, test={len(split['test'])}, "
+        f"use_text={use_text}"
+    )
 
     collate_fn = speech_text_collate_fn if use_text else speech_collate_fn
 

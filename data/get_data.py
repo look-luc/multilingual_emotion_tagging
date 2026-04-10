@@ -103,20 +103,38 @@ def build_audio_attention_mask(audios):
 
 def speech_text_collate_fn(batch):
     audios, labels, texts = [], [], []
+    skipped = 0
 
-    for item in batch:
+    for idx, item in enumerate(batch):
         try:
             waveform = load_waveform(item["audio"])
+
+            if waveform is None or waveform.numel() == 0:
+                print(f"[COLLATE][TEXT] Empty waveform at index {idx}")
+                skipped += 1
+                continue
+                
+            label = item.get("label", None)
+            if label is None:
+                print(f"[COLLATE][TEXT] Missing label at index {idx}")
+                skipped += 1
+                continue
+
+            text = str(item.get("text", ""))
+
             audios.append(waveform)
+            labels.append(torch.tensor(label, dtype=torch.long))
+            texts.append(text)
 
-            labels.append(torch.tensor(item["label"], dtype=torch.long))
+        except Exception as e:
+            print(f"[COLLATE][TEXT] Error at index {idx}: {e}")
+            skipped += 1
 
-            texts.append(str(item.get("text", "")))
-
-        except Exception:
-            continue
+    if skipped > 0:
+        print(f"[COLLATE][TEXT] Skipped {skipped}/{len(batch)} items")
 
     if len(audios) == 0:
+        print("[COLLATE][TEXT] Entire batch skipped!")
         return None
 
     tokenized = tokenizer(
@@ -138,21 +156,36 @@ def speech_text_collate_fn(batch):
     }
 
 def speech_collate_fn(batch):
-    audios, labels = [], []
+    audios, labels = []
+    skipped = 0
 
-    for item in batch:
-        audio_data = item["audio"]
-
+    for idx, item in enumerate(batch):
         try:
-            waveform = load_waveform(audio_data)
-            audios.append(waveform)
-            labels.append(torch.tensor(item["label"], dtype=torch.long))
+            waveform = load_waveform(item["audio"])
 
-        except Exception:
-            # skip corrupt files cleanly
-            continue
+            if waveform is None or waveform.numel() == 0:
+                print(f"[COLLATE][AUDIO] Empty waveform at index {idx}")
+                skipped += 1
+                continue
+
+            label = item.get("label", None)
+            if label is None:
+                print(f"[COLLATE][AUDIO] Missing label at index {idx}")
+                skipped += 1
+                continue
+
+            audios.append(waveform)
+            labels.append(torch.tensor(label, dtype=torch.long))
+
+        except Exception as e:
+            print(f"[COLLATE][AUDIO] Error at index {idx}: {e}")
+            skipped += 1
+            
+    if skipped > 0:
+        print(f"[COLLATE][AUDIO] Skipped {skipped}/{len(batch)} items")
 
     if len(audios) == 0:
+        print("[COLLATE][AUDIO] Entire batch skipped!")
         return None
 
     audio_batch = pad_sequence(audios, batch_first=True)
@@ -163,7 +196,6 @@ def speech_collate_fn(batch):
         "audio_attention_mask": audio_attention_mask,
         "labels": torch.stack(labels)
     }
-
 
 def label_to_tensor(example, label_field="emotional_state"):
     raw_label = str(example.get(label_field, "")).lower().strip()

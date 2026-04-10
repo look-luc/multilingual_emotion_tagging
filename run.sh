@@ -22,11 +22,11 @@ cd "$REPO_ROOT"
 module purge
 module load anaconda
 module load cuda/12.1.1
-module load ffmpeg
+#module load ffmpeg
 
 set +u && conda activate multilingual_emotion_tagging && set -u
 
 cd "$REPO_ROOT/multilingual_emotion_tagging"
 
-export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:${LD_LIBRARY_PATH:-}
+export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$(python3 -m site --user-site | sed 's/python.*/nvidia\/npp\/lib/'):$LD_LIBRARY_PATH
 python3 main.py

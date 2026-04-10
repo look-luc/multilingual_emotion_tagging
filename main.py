@@ -6,9 +6,7 @@ import torch.optim as optim
 import torch.nn as nn
 from sklearn.metrics import accuracy_score, f1_score
 
-# --------------------------
-# Device
-# --------------------------
+
 device = torch.device(
     "cuda" if torch.cuda.is_available()
     else "mps" if torch.backends.mps.is_available()
@@ -32,6 +30,7 @@ def main():
         multiling_model.train()
         total_loss = 0
         batch_count = 0
+        trained_languages = 0
 
         for lang, loader in dataset["train"].items():
             if loader is None:
@@ -39,6 +38,7 @@ def main():
                 continue
 
             print(f"Training on {lang}")
+            lang_batch_count = 0
 
             for batch_idx, batch in enumerate(loader):
                 if batch is None:
@@ -70,13 +70,24 @@ def main():
 
                 total_loss += loss.item()
                 batch_count += 1
+                lang_batch_count += 1
 
-        avg_loss = total_loss / max(batch_count, 1)
+            if lang_batch_count == 0:
+                print(f"[TRAIN] {lang}: no usable batches after collation")
+            else:
+                trained_languages += 1
+                print(f"[TRAIN] {lang}: trained on {lang_batch_count} batches")
+
+        if batch_count == 0:
+            raise RuntimeError(
+                "No training batches were produced. Check dataset filtering/collation logs above."
+            )
+
+        avg_loss = total_loss / batch_count
         loss_overtime.append(avg_loss)
 
-        print(f"Average Loss: {avg_loss:.4f}")
+        print(f"Average Loss: {avg_loss:.4f} across {batch_count} batches from {trained_languages} languages")
 
-        # -------- VALIDATION --------
         print("Starting validation...")
         multiling_model.eval()
 
@@ -131,7 +142,6 @@ def main():
 
             print(f"\nGLOBAL: acc={global_acc:.3f}, f1={global_f1:.3f}")
 
-    # -------- SAVE MODEL --------
     torch.save(multiling_model.state_dict(), "multi_ling_emotion.pth")
     print("\nModel saved as multi_ling_emotion.pth")
 

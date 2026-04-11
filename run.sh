@@ -6,7 +6,7 @@
 #SBATCH --time=6:00:00
 #SBATCH --output=/projects/%u/multilingual_emotion_tagging/logs/%j.log
 #SBATCH --job-name=multilang_emo
-#SBATCH --partition=alpine
+#SBATCH --partition=aa100
 #SBATCH --account=ucb-general
 #SBATCH --qos=normal
 #SBATCH --mail-type=END,FAIL

@@ -4,6 +4,7 @@ import torch
 import torchaudio
 import kagglehub
 import soundfile as sf
+import re
 from datasets import load_dataset, ClassLabel, Audio
 from torch.utils.data import DataLoader
 from torch.nn.utils.rnn import pad_sequence
@@ -11,7 +12,7 @@ from transformers import AutoTokenizer
 from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
 
 tokenizer = AutoTokenizer.from_pretrained("google-bert/bert-base-multilingual-cased")
-asr_model_name = "facebook/wav2vec2-large-960h-lv60-self"
+asr_model_name = "facebook/wav2vec2-xls-r-1b"
 asr_processor = Wav2Vec2Processor.from_pretrained(asr_model_name)
 asr_model = Wav2Vec2ForCTC.from_pretrained(asr_model_name)
 asr_model.eval()
@@ -34,6 +35,11 @@ emotion_map = {
     "fearful": "fear", "mie": "fear", "fear": "fear",
     "disgusted": "disgust", "asc": "disgust"
 }
+
+def normalize_text(text):
+    text = text.lower().strip()
+    text = re.sub(r"\s+", " ", text)  # collapse multiple spaces
+    return text
 
 def run_asr(waveform, sampling_rate=16000):
     try:
@@ -85,12 +91,12 @@ def load_waveform(audio_data):
 def add_transcription(example):
     existing_text = example.get("text")
     if existing_text:
-        example["text"] = str(existing_text)
+        example["text"] = normalize_text(str(existing_text))
         return example
 
     try:
         waveform = load_waveform(example["audio"])
-        example["text"] = run_asr(waveform)
+        example["text"] = normalize_text(run_asr(waveform))
     except Exception:
         example["text"] = ""
 

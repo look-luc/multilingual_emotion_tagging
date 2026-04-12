@@ -370,7 +370,7 @@ def get_data():
 
     # English
     eng = load_dataset("En1gma02/english_emotions", split="train")
-    datasets_dict["train"]["english"], datasets_dict["test"]["english"] = processing(eng, "style", use_text=False)
+    datasets_dict["train"]["english"], datasets_dict["test"]["english"] = processing(eng, "style", use_text=True)
 
     # Spanish
     span_path = kagglehub.dataset_download("angeluxarmenta/ses-sd")

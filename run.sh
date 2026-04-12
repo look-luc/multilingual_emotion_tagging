@@ -4,7 +4,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --time=6:00:00
-#SBATCH --output=logs/%j.log
+#SBATCH --output=/projects/%u/multilingual_emotion_tagging/logs/%j.log
 #SBATCH --job-name=multilang_emo
 #SBATCH --partition=blanca-clearlab2
 #SBATCH --account=blanca-clearlab2
@@ -22,7 +22,6 @@ cd "$REPO_ROOT"
 module purge
 module load anaconda
 module load cuda/12.1.1
-#module load ffmpeg
 
 set +u && conda activate multilingual_emotion_tagging && set -u
 

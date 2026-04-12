@@ -16,7 +16,7 @@ asr_processor = Wav2Vec2Processor.from_pretrained(asr_model_name)
 asr_model = Wav2Vec2ForCTC.from_pretrained(asr_model_name)
 asr_model.eval()
 ASR_SAMPLE_RATE = 16000
-DEFAULT_BATCH_SIZE = 4 if torch.backends.mps.is_available() else 32
+DEFAULT_BATCH_SIZE = 4 if torch.backends.mps.is_available() else 4 if torch.cuda.is_available() else 32
 
 os.environ["HF_DATASETS_AUDIO_DECODER_BACKEND"] = "ffmpeg"
 PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))

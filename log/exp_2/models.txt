@@ -1,0 +1,3 @@
+google bert base multilingual cased
+wav2vec 960h large lv 60
+get_data = facebook/mms-1b-all

@@ -1,0 +1,291 @@
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Loading weights:   0%|          | 0/1096 [00:00<?, ?it/s]Loading weights:  17%|█▋        | 189/1096 [00:00<00:00, 1517.09it/s]Loading weights:  31%|███       | 341/1096 [00:00<00:00, 819.46it/s] Loading weights:  40%|███▉      | 438/1096 [00:00<00:00, 745.34it/s]Loading weights:  48%|████▊     | 522/1096 [00:00<00:00, 766.85it/s]Loading weights:  55%|█████▌    | 604/1096 [00:00<00:00, 715.10it/s]Loading weights:  64%|██████▎   | 698/1096 [00:00<00:00, 680.46it/s]Loading weights:  70%|███████   | 769/1096 [00:01<00:00, 523.25it/s]Loading weights:  75%|███████▌  | 827/1096 [00:01<00:00, 463.72it/s]Loading weights:  81%|████████  | 887/1096 [00:01<00:00, 490.87it/s]Loading weights:  89%|████████▉ | 978/1096 [00:01<00:00, 586.76it/s]Loading weights:  98%|█████████▊| 1071/1096 [00:01<00:00, 671.32it/s]Loading weights: 100%|██████████| 1096/1096 [00:01<00:00, 666.44it/s]
+Using device: cuda
+Precomputing ASR transcripts...
+[DATA] dataset: retained labels -> angry=1000, happy=1000, sad=1000, neutral=1000, fear=1000, surprise=1000
+[DATA] emotional_state: kept 6000/6000 rows after label normalization
+Precomputing ASR transcripts...
+[DATA] emotional_state: train=4800, test=1200, use_text=True
+[DATA] dataset: retained labels -> angry=200, happy=200, sad=200, neutral=200, fear=200, surprise=200
+[DATA] label_str: kept 1200/1200 rows after label normalization
+Precomputing ASR transcripts...
+[DATA] label_str: train=960, test=240, use_text=True
+[DATA] dataset: retained labels -> happy=760, sad=380, neutral=380
+[DATA] dataset: filtered 1385 rows with unsupported labels from 'style'
+[DATA] style: kept 1520/2905 rows after label normalization
+[DATA] style: train=1216, test=304, use_text=True
+[DATA] dataset: retained labels -> angry=390, happy=350, sad=409, neutral=259
+[DATA] label: kept 1408/1408 rows after label normalization
+Precomputing ASR transcripts...
+[DATA] label: train=1126, test=282, use_text=True
+[DATA] dataset: retained labels -> angry=554, happy=512, sad=650, neutral=536
+[DATA] label: kept 2252/2252 rows after label normalization
+Precomputing ASR transcripts...
+[DATA] label: train=1801, test=451, use_text=True
+Loading weights:   0%|          | 0/421 [00:00<?, ?it/s]Loading weights: 100%|██████████| 421/421 [00:00<00:00, 35840.02it/s]
+[1mWav2Vec2Model LOAD REPORT[0m from: facebook/wav2vec2-large-960h-lv60-self
+Key               | Status     | 
+------------------+------------+-
+lm_head.bias      | UNEXPECTED | 
+lm_head.weight    | UNEXPECTED | 
+masked_spec_embed | MISSING    | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+- MISSING:	those params were newly initialized because missing from the checkpoint. Consider training on your downstream task.
+Loading weights:   0%|          | 0/199 [00:00<?, ?it/s]Loading weights: 100%|██████████| 199/199 [00:00<00:00, 7722.67it/s]
+[1mBertModel LOAD REPORT[0m from: google-bert/bert-base-multilingual-cased
+Key                                        | Status     |  | 
+-------------------------------------------+------------+--+-
+cls.predictions.bias                       | UNEXPECTED |  | 
+cls.predictions.transform.dense.weight     | UNEXPECTED |  | 
+cls.seq_relationship.bias                  | UNEXPECTED |  | 
+cls.predictions.transform.LayerNorm.bias   | UNEXPECTED |  | 
+cls.predictions.transform.dense.bias       | UNEXPECTED |  | 
+cls.seq_relationship.weight                | UNEXPECTED |  | 
+cls.predictions.transform.LayerNorm.weight | UNEXPECTED |  | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+
+===== Epoch 1/10 =====
+Training on japanese
+[TRAIN] japanese: trained on 323 batches
+Training on bangla
+[TRAIN] bangla: trained on 1200 batches
+Training on chinese
+[TRAIN] chinese: trained on 240 batches
+Training on english
+[TRAIN] english: trained on 304 batches
+Training on spanish
+[TRAIN] spanish: trained on 282 batches
+Training on arabic
+[TRAIN] arabic: trained on 451 batches
+Average Loss: 1.4172 across 2800 batches from 6 languages
+Starting validation...
+japanese: acc=0.161, f1=0.093
+bangla: acc=0.182, f1=0.068
+chinese: acc=0.225, f1=0.082
+english: acc=0.115, f1=0.102
+spanish: acc=0.291, f1=0.173
+arabic: acc=0.763, f1=0.743
+
+GLOBAL: acc=0.280, f1=0.168
+
+===== Epoch 2/10 =====
+Training on japanese
+[TRAIN] japanese: trained on 323 batches
+Training on bangla
+[TRAIN] bangla: trained on 1200 batches
+Training on chinese
+[TRAIN] chinese: trained on 240 batches
+Training on english
+[TRAIN] english: trained on 304 batches
+Training on spanish
+[TRAIN] spanish: trained on 282 batches
+Training on arabic
+[TRAIN] arabic: trained on 451 batches
+Average Loss: 0.9956 across 2800 batches from 6 languages
+Starting validation...
+japanese: acc=0.211, f1=0.154
+bangla: acc=0.223, f1=0.123
+chinese: acc=0.221, f1=0.112
+english: acc=0.276, f1=0.153
+spanish: acc=0.270, f1=0.157
+arabic: acc=0.869, f1=0.863
+
+GLOBAL: acc=0.336, f1=0.211
+
+===== Epoch 3/10 =====
+Training on japanese
+[TRAIN] japanese: trained on 323 batches
+Training on bangla
+[TRAIN] bangla: trained on 1200 batches
+Training on chinese
+[TRAIN] chinese: trained on 240 batches
+Training on english
+[TRAIN] english: trained on 304 batches
+Training on spanish
+[TRAIN] spanish: trained on 282 batches
+Training on arabic
+[TRAIN] arabic: trained on 451 batches
+Average Loss: 0.7515 across 2800 batches from 6 languages
+Starting validation...
+japanese: acc=0.241, f1=0.183
+bangla: acc=0.263, f1=0.184
+chinese: acc=0.208, f1=0.101
+english: acc=0.464, f1=0.312
+spanish: acc=0.248, f1=0.177
+arabic: acc=0.982, f1=0.982
+
+GLOBAL: acc=0.392, f1=0.258
+
+===== Epoch 4/10 =====
+Training on japanese
+[TRAIN] japanese: trained on 323 batches
+Training on bangla
+[TRAIN] bangla: trained on 1200 batches
+Training on chinese
+[TRAIN] chinese: trained on 240 batches
+Training on english
+[TRAIN] english: trained on 304 batches
+Training on spanish
+[TRAIN] spanish: trained on 282 batches
+Training on arabic
+[TRAIN] arabic: trained on 451 batches
+Average Loss: 0.6209 across 2800 batches from 6 languages
+Starting validation...
+japanese: acc=0.319, f1=0.249
+bangla: acc=0.318, f1=0.222
+chinese: acc=0.179, f1=0.097
+english: acc=0.408, f1=0.261
+spanish: acc=0.248, f1=0.173
+arabic: acc=0.980, f1=0.980
+
+GLOBAL: acc=0.415, f1=0.267
+
+===== Epoch 5/10 =====
+Training on japanese
+[TRAIN] japanese: trained on 323 batches
+Training on bangla
+[TRAIN] bangla: trained on 1200 batches
+Training on chinese
+[TRAIN] chinese: trained on 240 batches
+Training on english
+[TRAIN] english: trained on 304 batches
+Training on spanish
+[TRAIN] spanish: trained on 282 batches
+Training on arabic
+[TRAIN] arabic: trained on 451 batches
+Average Loss: 0.5143 across 2800 batches from 6 languages
+Starting validation...
+japanese: acc=0.316, f1=0.266
+bangla: acc=0.346, f1=0.276
+chinese: acc=0.250, f1=0.145
+english: acc=0.556, f1=0.358
+spanish: acc=0.330, f1=0.271
+arabic: acc=0.980, f1=0.981
+
+GLOBAL: acc=0.458, f1=0.297
+
+===== Epoch 6/10 =====
+Training on japanese
+[TRAIN] japanese: trained on 323 batches
+Training on bangla
+[TRAIN] bangla: trained on 1200 batches
+Training on chinese
+[TRAIN] chinese: trained on 240 batches
+Training on english
+[TRAIN] english: trained on 304 batches
+Training on spanish
+[TRAIN] spanish: trained on 282 batches
+Training on arabic
+[TRAIN] arabic: trained on 451 batches
+Average Loss: 0.4588 across 2800 batches from 6 languages
+Starting validation...
+japanese: acc=0.449, f1=0.366
+bangla: acc=0.371, f1=0.293
+chinese: acc=0.263, f1=0.145
+english: acc=0.605, f1=0.468
+spanish: acc=0.340, f1=0.242
+arabic: acc=0.991, f1=0.991
+
+GLOBAL: acc=0.493, f1=0.322
+
+===== Epoch 7/10 =====
+Training on japanese
+[TRAIN] japanese: trained on 323 batches
+Training on bangla
+[TRAIN] bangla: trained on 1200 batches
+Training on chinese
+[TRAIN] chinese: trained on 240 batches
+Training on english
+[TRAIN] english: trained on 304 batches
+Training on spanish
+[TRAIN] spanish: trained on 282 batches
+Training on arabic
+[TRAIN] arabic: trained on 451 batches
+Average Loss: 0.4137 across 2800 batches from 6 languages
+Starting validation...
+japanese: acc=0.520, f1=0.416
+bangla: acc=0.521, f1=0.402
+chinese: acc=0.371, f1=0.206
+english: acc=0.572, f1=0.390
+spanish: acc=0.387, f1=0.308
+arabic: acc=0.987, f1=0.987
+
+GLOBAL: acc=0.575, f1=0.410
+
+===== Epoch 8/10 =====
+Training on japanese
+[TRAIN] japanese: trained on 323 batches
+Training on bangla
+[TRAIN] bangla: trained on 1200 batches
+Training on chinese
+[TRAIN] chinese: trained on 240 batches
+Training on english
+[TRAIN] english: trained on 304 batches
+Training on spanish
+[TRAIN] spanish: trained on 282 batches
+Training on arabic
+[TRAIN] arabic: trained on 451 batches
+Average Loss: 0.3726 across 2800 batches from 6 languages
+Starting validation...
+japanese: acc=0.647, f1=0.641
+bangla: acc=0.719, f1=0.719
+chinese: acc=0.367, f1=0.196
+english: acc=0.707, f1=0.530
+spanish: acc=0.411, f1=0.347
+arabic: acc=0.998, f1=0.998
+
+GLOBAL: acc=0.693, f1=0.582
+
+===== Epoch 9/10 =====
+Training on japanese
+[TRAIN] japanese: trained on 323 batches
+Training on bangla
+[TRAIN] bangla: trained on 1200 batches
+Training on chinese
+[TRAIN] chinese: trained on 240 batches
+Training on english
+[TRAIN] english: trained on 304 batches
+Training on spanish
+[TRAIN] spanish: trained on 282 batches
+Training on arabic
+[TRAIN] arabic: trained on 451 batches
+Average Loss: 0.3447 across 2800 batches from 6 languages
+Starting validation...
+japanese: acc=0.498, f1=0.455
+bangla: acc=0.578, f1=0.420
+chinese: acc=0.404, f1=0.246
+english: acc=0.711, f1=0.544
+spanish: acc=0.411, f1=0.346
+arabic: acc=1.000, f1=1.000
+
+GLOBAL: acc=0.620, f1=0.409
+
+===== Epoch 10/10 =====
+Training on japanese
+[TRAIN] japanese: trained on 323 batches
+Training on bangla
+[TRAIN] bangla: trained on 1200 batches
+Training on chinese
+[TRAIN] chinese: trained on 240 batches
+Training on english
+[TRAIN] english: trained on 304 batches
+Training on spanish
+[TRAIN] spanish: trained on 282 batches
+Training on arabic
+[TRAIN] arabic: trained on 451 batches
+Average Loss: 0.3102 across 2800 batches from 6 languages
+Starting validation...
+japanese: acc=0.638, f1=0.550
+bangla: acc=0.682, f1=0.570
+chinese: acc=0.525, f1=0.427
+english: acc=0.763, f1=0.587
+spanish: acc=0.461, f1=0.413
+arabic: acc=1.000, f1=1.000
+
+GLOBAL: acc=0.701, f1=0.570
+
+Model saved as multi_ling_emotion.pth

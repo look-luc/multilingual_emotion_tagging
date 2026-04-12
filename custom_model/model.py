@@ -12,7 +12,7 @@ class MultiLingEmotion(nn.Module):
         self.num_classes = len(self.target_emotions)
 
         self.audio_encoder = Wav2Vec2Model.from_pretrained(
-            "facebook/wav2vec2-large-960h-lv60-self",
+            "jonatasgrosman/wav2vec-xls-r-300m-multilingual",
             attn_implementation="eager"
         )
 

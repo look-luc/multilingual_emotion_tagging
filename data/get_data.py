@@ -12,7 +12,7 @@ from transformers import AutoTokenizer
 from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
 
 tokenizer = AutoTokenizer.from_pretrained("google-bert/bert-base-multilingual-cased")
-asr_model_name = "facebook/wav2vec2-xls-r-1b"
+asr_model_name = "jonatasgrosman/wav2vec-xls-r-300m-multilingual"
 asr_processor = Wav2Vec2Processor.from_pretrained(asr_model_name)
 asr_model = Wav2Vec2ForCTC.from_pretrained(asr_model_name)
 asr_model.eval()

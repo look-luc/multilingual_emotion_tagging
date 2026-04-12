@@ -1,0 +1,2 @@
+google bert base multilingual cased
+wav2vec 960h large lv 60

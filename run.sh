@@ -1,14 +1,14 @@
 #!/bin/bash
-#SBATCH --gres=gpu:a100:1
+#SBATCH --gres=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --time=6:00:00
 #SBATCH --output=/projects/%u/multilingual_emotion_tagging/logs/%j.log
 #SBATCH --job-name=multilang_emo
-#SBATCH --partition=aa100
-#SBATCH --account=ucb-general
-#SBATCH --qos=normal
+#SBATCH --partition=blanca-clearlab2
+#SBATCH --account=blanca-clearlab2
+#SBATCH --qos=blanca-clearlab2
 #SBATCH --mail-type=END,FAIL
 
 export HF_HOME="/projects/$USER/.cache/huggingface"

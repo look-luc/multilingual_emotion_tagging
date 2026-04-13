@@ -26,22 +26,6 @@ class MultiLingEmotion(nn.Module):
         self.audio_projection = nn.Linear(self.audio_hidden_size, self.fusion_hidden_size)
         self.text_projection = nn.Linear(self.text_hidden_size, self.fusion_hidden_size)
 
-        self.text_to_audio_attention = nn.MultiheadAttention(
-            embed_dim=self.fusion_hidden_size,
-            num_heads=8,
-            dropout=0.1,
-            batch_first=True
-        )
-        self.audio_to_text_attention = nn.MultiheadAttention(
-            embed_dim=self.fusion_hidden_size,
-            num_heads=8,
-            dropout=0.1,
-            batch_first=True
-        )
-
-        self.text_fusion_norm = nn.LayerNorm(self.fusion_hidden_size)
-        self.audio_fusion_norm = nn.LayerNorm(self.fusion_hidden_size)
-
         self.classifier = nn.Sequential(
             nn.Linear(
                 self.fusion_hidden_size * 2,
@@ -79,13 +63,13 @@ class MultiLingEmotion(nn.Module):
         projected_audio = self.audio_projection(audio_out)
 
         feature_attention_mask = None
-        audio_key_padding_mask = None
         if audio_attention_mask is not None:
             feature_attention_mask = self.audio_encoder._get_feature_vector_attention_mask(
                 audio_out.size(1),
                 audio_attention_mask
             )
-            audio_key_padding_mask = ~feature_attention_mask.bool()
+
+        pooled_audio = self.masked_mean_pool(projected_audio, feature_attention_mask)
 
         if input_ids is not None and attention_mask is not None:
             text_out = self.text_encoder(
@@ -93,29 +77,8 @@ class MultiLingEmotion(nn.Module):
                 attention_mask=attention_mask
             ).last_hidden_state
             projected_text = self.text_projection(text_out)
-
-            text_key_padding_mask = ~attention_mask.bool()
-
-            text_attended, _ = self.text_to_audio_attention(
-                query=projected_text,
-                key=projected_audio,
-                value=projected_audio,
-                key_padding_mask=audio_key_padding_mask
-            )
-            text_attended = self.text_fusion_norm(projected_text + text_attended)
-
-            audio_attended, _ = self.audio_to_text_attention(
-                query=projected_audio,
-                key=projected_text,
-                value=projected_text,
-                key_padding_mask=text_key_padding_mask
-            )
-            audio_attended = self.audio_fusion_norm(projected_audio + audio_attended)
-
-            pooled_text = self.masked_mean_pool(text_attended, attention_mask)
-            pooled_audio = self.masked_mean_pool(audio_attended, feature_attention_mask)
+            pooled_text = self.masked_mean_pool(projected_text, attention_mask)
         else:
-            pooled_audio = self.masked_mean_pool(projected_audio, feature_attention_mask)
             pooled_text = torch.zeros(
                 pooled_audio.size(0),
                 self.fusion_hidden_size,

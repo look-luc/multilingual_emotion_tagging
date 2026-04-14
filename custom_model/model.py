@@ -51,8 +51,8 @@ class MultiLingEmotion(nn.Module):
             batch = audio
             audio = batch["audio"]
             audio_attention_mask = batch.get("audio_attention_mask")
-            input_ids = batch.get("input_ids")
-            attention_mask = batch.get("attention_mask")
+            # input_ids = batch.get("input_ids")
+            # attention_mask = batch.get("attention_mask")
 
         if audio.dtype != torch.float32:
             audio = audio.float()

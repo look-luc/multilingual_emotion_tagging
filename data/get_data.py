@@ -13,8 +13,8 @@ from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
 
 # tokenizer = AutoTokenizer.from_pretrained("google-bert/bert-base-multilingual-cased")
 asr_model_name = "facebook/wav2vec2-xls-r-1b"
-asr_processor = Wav2Vec2Processor.from_pretrained(asr_model_name)
-# asr_model = Wav2Vec2ForCTC.from_pretrained(asr_model_name)
+# asr_processor = Wav2Vec2Processor.from_pretrained(asr_model_name)
+asr_model = Wav2Vec2ForCTC.from_pretrained(asr_model_name)
 # asr_model.eval()
 ASR_SAMPLE_RATE = 16000
 DEFAULT_BATCH_SIZE = 4 if torch.backends.mps.is_available() else 4 if torch.cuda.is_available() else 32
@@ -336,7 +336,7 @@ def get_data():
     jap = jap.map(map_japanese_label)
 
     jap = jap.filter(lambda x: x["audio"] is not None and x["audio"]["array"] is not None)
-    jap = prepare_text_dataset(jap, transcribe=True)
+    # jap = prepare_text_dataset(jap, transcribe=True)
 
     split = jap.train_test_split(test_size=0.2, seed=42)
     train_loader = DataLoader(

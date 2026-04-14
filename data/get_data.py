@@ -11,7 +11,7 @@ from torch.nn.utils.rnn import pad_sequence
 from transformers import AutoTokenizer
 from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
 
-tokenizer = AutoTokenizer.from_pretrained("google-bert/bert-base-multilingual-cased")
+# tokenizer = AutoTokenizer.from_pretrained("google-bert/bert-base-multilingual-cased")
 asr_model_name = "facebook/wav2vec2-xls-r-1b"
 asr_processor = Wav2Vec2Processor.from_pretrained(asr_model_name)
 asr_model = Wav2Vec2ForCTC.from_pretrained(asr_model_name)
@@ -143,59 +143,59 @@ def build_audio_attention_mask(audios):
     return attention_mask
 
 
-def speech_text_collate_fn(batch):
-    audios, labels, texts = [], [], []
-    skipped = 0
-
-    for idx, item in enumerate(batch):
-        try:
-            waveform = load_waveform(item["audio"])
-
-            if waveform is None or waveform.numel() == 0:
-                print(f"[COLLATE][TEXT] Empty waveform at index {idx}")
-                skipped += 1
-                continue
-                
-            label = item.get("label", None)
-            if label is None:
-                print(f"[COLLATE][TEXT] Missing label at index {idx}")
-                skipped += 1
-                continue
-
-            text = str(item.get("text", ""))
-
-            audios.append(waveform)
-            labels.append(torch.tensor(label, dtype=torch.long))
-            texts.append(text)
-
-        except Exception as e:
-            print(f"[COLLATE][TEXT] Error at index {idx}: {e}")
-            skipped += 1
-
-    if skipped > 0:
-        print(f"[COLLATE][TEXT] Skipped {skipped}/{len(batch)} items")
-
-    if len(audios) == 0:
-        print("[COLLATE][TEXT] Entire batch skipped!")
-        return None
-
-    tokenized = tokenizer(
-        texts,
-        padding=True,
-        truncation=True,
-        return_tensors="pt"
-    )
-
-    audio_batch = pad_sequence(audios, batch_first=True)
-    audio_attention_mask = build_audio_attention_mask(audios)
-
-    return {
-        "audio": audio_batch,
-        "audio_attention_mask": audio_attention_mask,
-        "labels": torch.stack(labels),
-        "input_ids": tokenized["input_ids"],
-        "attention_mask": tokenized["attention_mask"]
-    }
+# def speech_text_collate_fn(batch):
+#     audios, labels, texts = [], [], []
+#     skipped = 0
+#
+#     for idx, item in enumerate(batch):
+#         try:
+#             waveform = load_waveform(item["audio"])
+#
+#             if waveform is None or waveform.numel() == 0:
+#                 print(f"[COLLATE][TEXT] Empty waveform at index {idx}")
+#                 skipped += 1
+#                 continue
+#
+#             label = item.get("label", None)
+#             if label is None:
+#                 print(f"[COLLATE][TEXT] Missing label at index {idx}")
+#                 skipped += 1
+#                 continue
+#
+#             text = str(item.get("text", ""))
+#
+#             audios.append(waveform)
+#             labels.append(torch.tensor(label, dtype=torch.long))
+#             texts.append(text)
+#
+#         except Exception as e:
+#             print(f"[COLLATE][TEXT] Error at index {idx}: {e}")
+#             skipped += 1
+#
+#     if skipped > 0:
+#         print(f"[COLLATE][TEXT] Skipped {skipped}/{len(batch)} items")
+#
+#     if len(audios) == 0:
+#         print("[COLLATE][TEXT] Entire batch skipped!")
+#         return None
+#
+#     tokenized = tokenizer(
+#         texts,
+#         padding=True,
+#         truncation=True,
+#         return_tensors="pt"
+#     )
+#
+#     audio_batch = pad_sequence(audios, batch_first=True)
+#     audio_attention_mask = build_audio_attention_mask(audios)
+#
+#     return {
+#         "audio": audio_batch,
+#         "audio_attention_mask": audio_attention_mask,
+#         "labels": torch.stack(labels),
+#         "input_ids": tokenized["input_ids"],
+#         "attention_mask": tokenized["attention_mask"]
+#     }
 
 def speech_collate_fn(batch):
     audios, labels = [], []
@@ -302,12 +302,12 @@ def processing(dataset, label_column_name, use_text=False):
         f"[DATA] {label_column_name}: train={len(split['train'])}, test={len(split['test'])}, "
         f"use_text={use_text}"
     )
+    '''speech_text_collate_fn if use_text else'''
+    collate_fn = speech_collate_fn
 
-    collate_fn = speech_text_collate_fn if use_text else speech_collate_fn
-
-    train_loader = DataLoader(split["train"], batch_size=DEFAULT_BATCH_SIZE, shuffle=True, collate_fn=collate_fn) \
+    train_loader = DataLoader(split["train"], batch_size=DEFAULT_BATCH_SIZE, shuffle=True, collate_fn=collate_fn, num_workers=4) \
         if len(split["train"]) > 0 else None
-    test_loader = DataLoader(split["test"], batch_size=DEFAULT_BATCH_SIZE, shuffle=False, collate_fn=collate_fn) \
+    test_loader = DataLoader(split["test"], batch_size=DEFAULT_BATCH_SIZE, shuffle=False, collate_fn=collate_fn, num_workers=4) \
         if len(split["test"]) > 0 else None
 
     return train_loader, test_loader
@@ -343,13 +343,14 @@ def get_data():
         split["train"],
         batch_size=DEFAULT_BATCH_SIZE,
         shuffle=True,
-        collate_fn=speech_text_collate_fn
+        # _text
+        collate_fn=speech_collate_fn
     )
     test_loader = DataLoader(
         split["test"],
         batch_size=DEFAULT_BATCH_SIZE,
         shuffle=False,
-        collate_fn=speech_text_collate_fn
+        collate_fn=speech_collate_fn #_text
     )
 
     datasets_dict["train"]["japanese"] = train_loader

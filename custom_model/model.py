@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from transformers import Wav2Vec2Model, BertModel
+from transformers import Wav2Vec2Model
 
 class MultiLingEmotion(nn.Module):
     def __init__(self, target_emotions=None):
@@ -16,21 +16,21 @@ class MultiLingEmotion(nn.Module):
             attn_implementation="eager"
         )
 
-        self.text_encoder = BertModel.from_pretrained(
-            "google-bert/bert-base-multilingual-cased"
-        )
         self.audio_hidden_size = self.audio_encoder.config.hidden_size
-        self.text_hidden_size = self.text_encoder.config.hidden_size
         self.fusion_hidden_size = 512
 
         self.audio_projection = nn.Linear(self.audio_hidden_size, self.fusion_hidden_size)
-        self.text_projection = nn.Linear(self.text_hidden_size, self.fusion_hidden_size)
+        # Audio-only path:
+        # self.text_encoder = BertModel.from_pretrained(
+        #     "google-bert/bert-base-multilingual-cased"
+        # )
+        # self.text_hidden_size = self.text_encoder.config.hidden_size
+        # self.text_projection = nn.Linear(self.text_hidden_size, self.fusion_hidden_size)
 
         self.classifier = nn.Sequential(
-            nn.Linear(
-                self.fusion_hidden_size * 2,
-                512
-            ),
+            nn.Linear(self.fusion_hidden_size, 512),
+            # Original fused classifier input:
+            # nn.Linear(self.fusion_hidden_size * 2, 512),
             nn.LeakyReLU(),
             nn.Dropout(0.3),
             nn.Linear(512, self.num_classes)
@@ -71,22 +71,24 @@ class MultiLingEmotion(nn.Module):
 
         pooled_audio = self.masked_mean_pool(projected_audio, feature_attention_mask)
 
-        if input_ids is not None and attention_mask is not None:
-            text_out = self.text_encoder(
-                input_ids=input_ids,
-                attention_mask=attention_mask
-            ).last_hidden_state
-            projected_text = self.text_projection(text_out)
-            pooled_text = self.masked_mean_pool(projected_text, attention_mask)
-        else:
-            pooled_text = torch.zeros(
-                pooled_audio.size(0),
-                self.fusion_hidden_size,
-                device=pooled_audio.device,
-                dtype=pooled_audio.dtype
-            )
-        
-        combined = torch.cat((pooled_audio, pooled_text), dim=1)
-        logits = self.classifier(combined)
+        #
+        # if input_ids is not None and attention_mask is not None:
+        #     text_out = self.text_encoder(
+        #         input_ids=input_ids,
+        #         attention_mask=attention_mask
+        #     ).last_hidden_state
+        #     projected_text = self.text_projection(text_out)
+        #     pooled_text = self.masked_mean_pool(projected_text, attention_mask)
+        # else:
+        #     pooled_text = torch.zeros(
+        #         pooled_audio.size(0),
+        #         self.fusion_hidden_size,
+        #         device=pooled_audio.device,
+        #         dtype=pooled_audio.dtype
+        #     )
+        #
+        # combined = torch.cat((pooled_audio, pooled_text), dim=1)
+        # logits = self.classifier(combined)
+        logits = self.classifier(pooled_audio)
 
         return logits
